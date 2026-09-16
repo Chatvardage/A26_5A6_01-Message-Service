@@ -1,0 +1,21 @@
+  message-service:
+    build:
+      context: ../A26_5A6_01-Message-Service
+      dockerfile: Dockerfile
+    container_name: chatvardage-message-service
+    restart: unless-stopped
+    environment:
+      PORT: 3004
+      DATABASE_URL: >-
+        postgresql://${MESSAGES_DB_USER:-message_service}:${MESSAGES_DB_PASSWORD:-message_service_dev}@postgres:5432/${MESSAGES_DB:-chatvardage_messages}?schema=public
+      REDIS_URL: >-
+        redis://:${REDIS_PASSWORD:-chatvardage_redis_dev}@redis:6379
+    ports:
+      - "3004:3004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chatvardage

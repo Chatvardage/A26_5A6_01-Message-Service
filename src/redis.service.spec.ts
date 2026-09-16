@@ -1,0 +1,102 @@
+import Redis from "ioredis";
+
+import { RedisService } from "./redis.service";
+
+const connect = jest.fn(),
+  ping = jest.fn(),
+  publish = jest.fn(),
+  subscribe = jest.fn(),
+  on = jest.fn(),
+  disconnect = jest.fn();
+
+let instances: any[] = [];
+
+jest.mock("ioredis", () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => {
+    const x = {
+      status: "wait",
+      connect,
+      ping,
+      publish,
+      subscribe,
+      on,
+      disconnect,
+    };
+
+    instances.push(x);
+
+    return x;
+  }),
+}));
+
+describe("RedisService", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    instances = [];
+
+    delete process.env.REDIS_URL;
+
+    connect.mockResolvedValue(undefined);
+    ping.mockResolvedValue("PONG");
+    publish.mockResolvedValue(1);
+    subscribe.mockResolvedValue(1);
+  });
+
+  it("ping connects waiting publisher", async () => {
+    const s = new RedisService();
+
+    await expect(s.ping()).resolves.toBe("PONG");
+
+    expect(connect).toHaveBeenCalled();
+  });
+
+  it("publish serializes payload and skips connect when ready", async () => {
+    const s = new RedisService();
+
+    (s.publisher as any).status = "ready";
+
+    await expect(s.publish("c", { a: 1 })).resolves.toBe(1);
+
+    expect(publish).toHaveBeenCalledWith("c", '{"a":1}');
+  });
+
+  it("subscribe connects and registers handler", async () => {
+    const s = new RedisService();
+
+    const h = jest.fn();
+
+    await s.subscribe(["a", "b"], h);
+
+    expect(subscribe).toHaveBeenCalledWith("a", "b");
+    expect(on).toHaveBeenCalledWith("message", h);
+  });
+
+  it("disconnects non-ended clients", () => {
+    const s = new RedisService();
+
+    s.onModuleDestroy();
+
+    expect(disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not disconnect ended clients", () => {
+    const s = new RedisService();
+
+    (s.publisher as any).status = "end";
+    (s.subscriber as any).status = "end";
+
+    s.onModuleDestroy();
+
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("uses configured URL", () => {
+    process.env.REDIS_URL = "redis://x";
+
+    new RedisService();
+
+    expect(Redis).toHaveBeenCalledWith("redis://x", expect.any(Object));
+  });
+});
