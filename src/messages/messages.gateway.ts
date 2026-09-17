@@ -79,7 +79,10 @@ export class MessagesGateway
       const user = await this.jwt.verifyToken(token);
       client.data.userId = user.id;
       await client.join(`user:${user.id}`);
-    } catch {
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "erreur inconnue";
+      this.logger.warn(`Connexion refusée [${client.id}]: ${message}`);
       client.disconnect(true);
     }
   }

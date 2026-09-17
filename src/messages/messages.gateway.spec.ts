@@ -126,6 +126,19 @@ describe("MessagesGateway", () => {
     expect(client.disconnect).toHaveBeenCalledWith(true);
   });
 
+  it("disconnects when JWT verification throws a non-Error value", async () => {
+    jwt.verifyToken.mockRejectedValue("failure");
+    const client: any = {
+      id: "socket-unknown-error",
+      handshake: { auth: { token: "bad" } },
+      data: {},
+      disconnect: jest.fn(),
+      join: jest.fn(),
+    };
+    await gateway.handleConnection(client);
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+  });
+
   it("verifies JWT and joins the authenticated user room", async () => {
     jwt.verifyToken.mockResolvedValue({ id: "u1" });
     const client: any = {

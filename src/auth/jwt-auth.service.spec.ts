@@ -63,6 +63,32 @@ describe("JwtAuthService", () => {
       ServiceUnavailableException,
     );
   });
+  it("rejects a non-JSON Auth response", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError("invalid json");
+      },
+    });
+    await expect(service.verifyToken("jwt")).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+  it.each([
+    { id: "u1", role: "utilisateur", courriel: "a@b.ca" },
+    { id: "u1", role: "utilisateur", pseudo: "Alice" },
+  ])("rejects incomplete Auth user %#", async (user) => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => user,
+    });
+    await expect(service.verifyToken("jwt")).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
   it("rejects malformed Auth response", async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

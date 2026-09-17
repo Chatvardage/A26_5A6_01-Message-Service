@@ -42,8 +42,15 @@ export class JwtAuthService {
       throw new ServiceUnavailableException(
         "Validation de l'authentification impossible",
       );
-    const user = (await response.json()) as Partial<AuthenticatedUser>;
-    if (!user.id || !user.role)
+    let user: Partial<AuthenticatedUser>;
+    try {
+      user = (await response.json()) as Partial<AuthenticatedUser>;
+    } catch {
+      throw new ServiceUnavailableException(
+        "Réponse invalide du service d'authentification",
+      );
+    }
+    if (!user.id || !user.role || !user.pseudo || !user.courriel)
       throw new ServiceUnavailableException(
         "Réponse invalide du service d'authentification",
       );
