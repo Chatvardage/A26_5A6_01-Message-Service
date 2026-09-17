@@ -1,17 +1,11 @@
-import { JwtAuthGuard, AuthenticatedRequest } from "./jwt-auth.guard";
+import { AuthenticatedRequest, JwtAuthGuard } from "./jwt-auth.guard";
 
 describe("JwtAuthGuard", () => {
-  it("verifies bearer token and attaches claims", () => {
-    const claims: any = {
-      sub: "u1",
-      pseudo: "Alice",
-      role: "utilisateur",
-      version_auth: 1,
-      exp: 9999999999,
-    };
+  it("validates bearer token through Auth and attaches the current user", async () => {
+    const user: any = { id: "u1", pseudo: "Alice", role: "utilisateur" };
     const jwt: any = {
       bearerToken: jest.fn().mockReturnValue("token"),
-      verifyToken: jest.fn().mockReturnValue(claims),
+      verifyToken: jest.fn().mockResolvedValue(user),
     };
     const guard = new JwtAuthGuard(jwt);
     const request = {
@@ -20,9 +14,9 @@ describe("JwtAuthGuard", () => {
     const context: any = {
       switchToHttp: () => ({ getRequest: () => request }),
     };
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(jwt.bearerToken).toHaveBeenCalledWith("Bearer token");
     expect(jwt.verifyToken).toHaveBeenCalledWith("token");
-    expect(request.auth).toBe(claims);
+    expect(request.auth).toBe(user);
   });
 });

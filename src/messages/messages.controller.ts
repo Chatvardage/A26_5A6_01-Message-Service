@@ -27,7 +27,7 @@ export class MessagesController {
     @Req() req: AuthenticatedRequest,
     @Body() dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
-    return this.messages.create(req.auth.sub, dto);
+    return this.messages.create(req.auth.id, dto);
   }
 
   @Get("history/:otherUserId")
@@ -36,7 +36,7 @@ export class MessagesController {
     @Param("otherUserId") otherUserId: string,
     @Query() query: HistoryQueryDto,
   ): Promise<PrivateMessage[]> {
-    return this.messages.history(req.auth.sub, otherUserId, query);
+    return this.messages.history(req.auth.id, otherUserId, query);
   }
 
   @Get(":id")
@@ -44,7 +44,7 @@ export class MessagesController {
     @Req() req: AuthenticatedRequest,
     @Param("id") id: string,
   ): Promise<PrivateMessage> {
-    return this.messages.findOne(req.auth.sub, id);
+    return this.messages.findOne(req.auth.id, id);
   }
 
   @Patch(":id")
@@ -53,7 +53,7 @@ export class MessagesController {
     @Param("id") id: string,
     @Body() dto: UpdateMessageDto,
   ): Promise<PrivateMessage> {
-    return this.messages.update(req.auth.sub, id, dto);
+    return this.messages.update(req.auth.id, id, dto);
   }
 
   @Delete(":id")
@@ -61,7 +61,7 @@ export class MessagesController {
     @Req() req: AuthenticatedRequest,
     @Param("id") id: string,
   ): Promise<{ deleted: true }> {
-    await this.messages.remove(req.auth.sub, id);
+    await this.messages.remove(req.auth.id, id);
     return { deleted: true };
   }
 }

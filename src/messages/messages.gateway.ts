@@ -73,12 +73,12 @@ export class MessagesGateway
     );
   }
 
-  handleConnection(client: AuthenticatedSocket): void {
+  async handleConnection(client: AuthenticatedSocket): Promise<void> {
     try {
       const token = this.readSocketToken(client);
-      const claims = this.jwt.verifyToken(token);
-      client.data.userId = claims.sub;
-      void client.join(`user:${claims.sub}`);
+      const user = await this.jwt.verifyToken(token);
+      client.data.userId = user.id;
+      await client.join(`user:${user.id}`);
     } catch {
       client.disconnect(true);
     }

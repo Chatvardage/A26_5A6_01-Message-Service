@@ -12,7 +12,7 @@ Redis ne remplace jamais la persistance. Après une reconnexion, le client recha
 
 ## Authentification
 
-Le service utilise les JWT HS256 émis par `A26_5A6_01-Authentification`. Le même `JWT_SECRET` (minimum 32 caractères) doit être fourni aux deux services par Infra.
+Le service utilise les JWT émis par `A26_5A6_01-Authentification`.
 
 REST : `Authorization: Bearer <JWT>`.
 
@@ -24,7 +24,11 @@ const socket = io('http://localhost:3004/messages', {
 });
 ```
 
-L'identité vient uniquement du claim signé `sub`. `x-user-id` et `handshake.auth.userId` ne sont pas acceptés. Le service valide localement la signature HS256 et l'expiration. La révocation par `version_auth` demeure la responsabilité d'Auth/API Gateway; Message-Service doit rester un service interne et ne doit pas être exposé directement à Internet.
+Message-Service ne valide pas localement la signature du JWT. Il transmet le jeton à `GET /api/auth/me` du service Auth à l'aide de `AUTH_SERVICE_URL`.
+
+Auth-Service valide le jeton, vérifie sa révocation avec `version_auth` et confirme l'existence du compte dans PostgreSQL. Message-Service utilise ensuite l'utilisateur retourné par Auth-Service comme identité authentifiée.
+
+`x-user-id` et `handshake.auth.userId` ne sont pas acceptés. L'identité ne peut donc pas être choisie directement par le client.
 
 ## API REST
 
@@ -38,7 +42,10 @@ L'identité vient uniquement du claim signé `sub`. `x-user-id` et `handshake.au
 Création :
 
 ```json
-{ "recipientId": "uuid-destinataire", "content": "Salut!" }
+{
+  "recipientId": "uuid-destinataire",
+  "content": "Salut!"
+}
 ```
 
 `content` est obligatoire et limité à 4000 caractères, en REST comme en WebSocket.
@@ -49,9 +56,19 @@ Namespace Socket.IO : `/messages`.
 
 Émission client : `private-message.send` avec le même schéma que la création REST.
 
-Événements serveur : `private-message.created`, `private-message.updated`, `private-message.deleted`.
+Événements serveur :
 
-Le client est placé dans la room `user:<sub>` dérivée du JWT vérifié. Il ne choisit donc pas son identité.
+- `private-message.created`
+- `private-message.updated`
+- `private-message.deleted`
+
+Après validation du JWT par Auth-Service, le client est placé dans la room `user:<id>` correspondant à l'utilisateur authentifié. Il ne choisit donc pas son identité.
+
+Le chemin de diffusion est :
+
+`PostgreSQL -> Redis PUBLISH -> Redis SUBSCRIBE -> Socket.IO`
+
+L'émetteur et le destinataire reçoivent l'événement temps réel correspondant.
 
 ## Variables d'environnement
 
@@ -59,15 +76,25 @@ Le client est placé dans la room `user:<sub>` dérivée du JWT vérifié. Il ne
 PORT=3004
 DATABASE_URL="postgresql://message_service:message_service_dev@localhost:5432/chatvardage_messages?schema=public"
 REDIS_URL="redis://:chatvardage_redis_dev@localhost:6379"
-JWT_SECRET="change-me-minimum-32-characters-long"
 CORS_ORIGINS="http://localhost:5173"
+AUTH_SERVICE_URL=http://localhost:3001
 ```
 
-Dans Docker Compose, utiliser `postgres` et `redis` comme hostnames. `CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`).
+Dans Docker Compose, utiliser `postgres` et `redis` comme hostnames.
+
+En Docker global, le service Auth est accessible avec :
+
+```env
+AUTH_SERVICE_URL=http://auth-service:3001
+```
+
+`CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`).
 
 ## Docker
 
-Le build génère Prisma et compile NestJS. L'image finale réutilise les dépendances déjà installées dans le stage de build : aucun téléchargement de Prisma n'est effectué au démarrage. Le conteneur exécute `prisma migrate deploy`, puis `node dist/main`.
+Le build génère Prisma et compile NestJS. L'image finale réutilise les dépendances déjà installées dans le stage de build : aucun téléchargement de Prisma n'est effectué au démarrage.
+
+Le conteneur exécute `prisma migrate deploy`, puis `node dist/main`.
 
 L'orchestration complète appartient au dépôt `A26_5A6_01-Infra`.
 
@@ -79,6 +106,21 @@ Après le lancement via Infra :
 Invoke-RestMethod http://localhost:3004/api/health
 ```
 
-Le résultat attendu lorsque tout fonctionne est `status=ok`, `database=ok`, `redis=ok`. En cas de panne partielle, l'endpoint retourne `status=degraded` et indique séparément l'état de PostgreSQL et Redis.
+Le résultat attendu lorsque tout fonctionne est :
 
-Avant une PR : exécuter lint, tests avec couverture, build et audit selon les scripts présents dans la branche de développement de l'équipe.
+- `status=ok`
+- `database=ok`
+- `redis=ok`
+
+En cas de panne partielle, l'endpoint retourne `status=degraded` et indique séparément l'état de PostgreSQL et Redis.
+
+Avant une PR, exécuter :
+
+```powershell
+npm run lint
+npm run test:cov
+npm run build
+npm audit
+```
+
+Les tests couvrent notamment l'authentification, les opérations REST, la persistance des messages, Redis Pub/Sub et la diffusion Socket.IO.

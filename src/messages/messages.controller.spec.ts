@@ -3,7 +3,7 @@ import { MessagesController } from "./messages.controller";
 describe("MessagesController", () => {
   let service: any;
   let controller: MessagesController;
-  const req: any = { auth: { sub: "u1" } };
+  const req: any = { auth: { id: "u1" } };
 
   beforeEach(() => {
     service = {

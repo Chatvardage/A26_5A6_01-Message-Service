@@ -100,41 +100,41 @@ describe("MessagesGateway", () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("disconnects when the socket token is missing", () => {
+  it("disconnects when the socket token is missing", async () => {
     const client: any = {
       handshake: { auth: {} },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
     };
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalledWith(true);
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("disconnects when JWT verification fails", () => {
-    jwt.verifyToken.mockImplementation(() => {
-      throw new UnauthorizedException();
-    });
+  it("disconnects when JWT verification fails", async () => {
+    jwt.verifyToken.mockRejectedValue(new UnauthorizedException());
+    /*
+     */
     const client: any = {
       handshake: { auth: { token: "bad" } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
     };
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalledWith(true);
   });
 
-  it("verifies JWT and joins the authenticated user room", () => {
-    jwt.verifyToken.mockReturnValue({ sub: "u1" });
+  it("verifies JWT and joins the authenticated user room", async () => {
+    jwt.verifyToken.mockResolvedValue({ id: "u1" });
     const client: any = {
       handshake: { auth: { token: "jwt" } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn().mockResolvedValue(undefined),
     };
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
     expect(jwt.verifyToken).toHaveBeenCalledWith("jwt");
     expect(client.data.userId).toBe("u1");
     expect(client.join).toHaveBeenCalledWith("user:u1");
@@ -163,38 +163,38 @@ describe("MessagesGateway", () => {
       gateway.handleDisconnect({ id: "socket-1" } as any),
     ).not.toThrow();
   });
-  it("disconnects when socket auth is null", () => {
+  it("disconnects when socket auth is null", async () => {
     const client: any = {
       handshake: { auth: null },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
     };
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalledWith(true);
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("disconnects when socket token is not a string", () => {
+  it("disconnects when socket token is not a string", async () => {
     const client: any = {
       handshake: { auth: { token: 123 } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
     };
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalledWith(true);
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("disconnects when socket token is empty", () => {
+  it("disconnects when socket token is empty", async () => {
     const client: any = {
       handshake: { auth: { token: "" } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
     };
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalledWith(true);
   });
 
