@@ -114,8 +114,7 @@ describe("MessagesGateway", () => {
 
   it("disconnects when JWT verification fails", async () => {
     jwt.verifyToken.mockRejectedValue(new UnauthorizedException());
-    /*
-     */
+
     const client: any = {
       handshake: { auth: { token: "bad" } },
       data: {},

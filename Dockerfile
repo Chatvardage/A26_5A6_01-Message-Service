@@ -27,4 +27,6 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
+EXPOSE 3004
+
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

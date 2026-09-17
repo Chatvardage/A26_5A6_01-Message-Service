@@ -1,4 +1,5 @@
 import { Logger, UsePipes, ValidationPipe } from "@nestjs/common";
+import { PrivateMessage } from "@prisma/client";
 import {
   ConnectedSocket,
   MessageBody,
@@ -77,11 +78,13 @@ export class MessagesGateway
     try {
       const token = this.readSocketToken(client);
       const user = await this.jwt.verifyToken(token);
+
       client.data.userId = user.id;
       await client.join(`user:${user.id}`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "erreur inconnue";
+
       this.logger.warn(`Connexion refusée [${client.id}]: ${message}`);
       client.disconnect(true);
     }
@@ -96,21 +99,29 @@ export class MessagesGateway
   async send(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() dto: CreateMessageDto,
-  ): Promise<unknown> {
+  ): Promise<PrivateMessage> {
     const senderId = client.data.userId;
-    if (!senderId) throw new WsException("Utilisateur non authentifié");
+
+    if (!senderId) {
+      throw new WsException("Utilisateur non authentifié");
+    }
+
     return this.messages.create(senderId, dto);
   }
 
   private readSocketToken(client: AuthenticatedSocket): string {
     const auth: unknown = client.handshake.auth;
+
     if (typeof auth !== "object" || auth === null || !("token" in auth)) {
       throw new WsException("Token JWT manquant");
     }
+
     const token = (auth as { token?: unknown }).token;
+
     if (typeof token !== "string" || token.length === 0) {
       throw new WsException("Token JWT manquant");
     }
+
     return token;
   }
 
@@ -125,12 +136,15 @@ export class MessagesGateway
     }
 
     let message: PrivateMessageEvent;
+
     try {
       const parsed: unknown = JSON.parse(payload);
+
       if (!this.isPrivateMessageEvent(parsed)) {
         this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
         return;
       }
+
       message = parsed;
     } catch {
       this.logger.warn(`Événement Redis invalide ignoré: ${payload}`);
@@ -138,14 +152,19 @@ export class MessagesGateway
     }
 
     this.server.to(`user:${message.senderId}`).emit(channel, message);
+
     if (message.recipientId !== message.senderId) {
       this.server.to(`user:${message.recipientId}`).emit(channel, message);
     }
   }
 
   private isPrivateMessageEvent(value: unknown): value is PrivateMessageEvent {
-    if (typeof value !== "object" || value === null) return false;
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+
     const event = value as Record<string, unknown>;
+
     return (
       typeof event.id === "string" &&
       typeof event.senderId === "string" &&
