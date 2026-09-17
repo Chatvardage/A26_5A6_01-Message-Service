@@ -11,13 +11,25 @@ export class HealthController {
 
   @Get()
   async health(): Promise<Record<string, string>> {
-    await this.prisma.$queryRaw`SELECT 1`;
-    const redis = await this.redis.ping();
+    let database = "ok";
+    let redis = "ok";
+
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      database = "error";
+    }
+    try {
+      if ((await this.redis.ping()) !== "PONG") redis = "error";
+    } catch {
+      redis = "error";
+    }
+
     return {
-      status: "ok",
+      status: database === "ok" && redis === "ok" ? "ok" : "degraded",
       service: "message-service",
-      database: "ok",
-      redis: redis === "PONG" ? "ok" : "error",
+      database,
+      redis,
     };
   }
 }

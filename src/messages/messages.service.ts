@@ -7,6 +7,7 @@ import { PrivateMessage } from "@prisma/client";
 import { PrismaService } from "../prisma.service";
 import { RedisService } from "../redis.service";
 import { CreateMessageDto } from "./dto/create-message.dto";
+import { HistoryQueryDto } from "./dto/history-query.dto";
 import { UpdateMessageDto } from "./dto/update-message.dto";
 
 @Injectable()
@@ -30,16 +31,24 @@ export class MessagesService {
     return message;
   }
 
-  history(userId: string, otherUserId: string): Promise<PrivateMessage[]> {
-    return this.prisma.privateMessage.findMany({
+  async history(
+    userId: string,
+    otherUserId: string,
+    query: HistoryQueryDto,
+  ): Promise<PrivateMessage[]> {
+    const messages = await this.prisma.privateMessage.findMany({
       where: {
         OR: [
           { senderId: userId, recipientId: otherUserId },
           { senderId: otherUserId, recipientId: userId },
         ],
       },
-      orderBy: { createdAt: "asc" },
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      take: query.limit,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
+
+    return messages.reverse();
   }
 
   async findOne(userId: string, id: string): Promise<PrivateMessage> {

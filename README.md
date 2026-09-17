@@ -1,123 +1,84 @@
 # A26_5A6_01-Message-Service
 
-Microservice des messages privés de Chatvardage C2.
+Microservice des messages privés de Chatvardage — Contrôle 2.
 
-## Architecture temps réel
+## Responsabilité
 
-Le flux respecte l'ordre suivant :
+PostgreSQL est la source de vérité. Après une écriture réussie, Message-Service publie l'événement dans Redis Pub/Sub; le subscriber Redis le rediffuse ensuite aux clients concernés via Socket.IO.
 
-1. le client envoie un DM par REST ou Socket.IO;
-2. Message-Service sauvegarde le message dans PostgreSQL;
-3. seulement si l'écriture DB réussit, le service fait `PUBLISH` dans Redis;
-4. le subscriber Redis du Message-Service reçoit l'événement;
-5. Socket.IO diffuse l'événement aux rooms personnelles de l'expéditeur et du destinataire.
+`PostgreSQL -> Redis PUBLISH -> Redis SUBSCRIBE -> Socket.IO`
 
-```text
-Client
-  |
-  | REST / Socket.IO
-  v
-Message-Service
-  |
-  | 1. WRITE
-  v
-PostgreSQL
-  |
-  | succès
-  v
-Redis PUBLISH
-  |
-  v
-Redis SUBSCRIBE
-  |
-  v
-Socket.IO
-  |-------------------|
-  v                   v
-Expéditeur        Destinataire
+Redis ne remplace jamais la persistance. Après une reconnexion, le client recharge l'historique par l'API REST.
+
+## Authentification
+
+Le service utilise les JWT HS256 émis par `A26_5A6_01-Authentification`. Le même `JWT_SECRET` (minimum 32 caractères) doit être fourni aux deux services par Infra.
+
+REST : `Authorization: Bearer <JWT>`.
+
+Socket.IO :
+
+```js
+const socket = io('http://localhost:3004/messages', {
+  auth: { token: jwt },
+});
 ```
 
-Redis Pub/Sub est donc réellement l'intermédiaire entre la persistance et la diffusion WebSocket.
-
-## Événements Redis / Socket.IO
-
-- `private-message.created`
-- `private-message.updated`
-- `private-message.deleted`
-
-Les événements sont diffusés aux deux utilisateurs concernés.
+L'identité vient uniquement du claim signé `sub`. `x-user-id` et `handshake.auth.userId` ne sont pas acceptés. Le service valide localement la signature HS256 et l'expiration. La révocation par `version_auth` demeure la responsabilité d'Auth/API Gateway; Message-Service doit rester un service interne et ne doit pas être exposé directement à Internet.
 
 ## API REST
 
-- `GET /api/health`
-- `POST /api/messages`
-- `GET /api/messages/history/:otherUserId`
-- `GET /api/messages/:id`
-- `PATCH /api/messages/:id`
-- `DELETE /api/messages/:id`
+- `GET /api/health` — santé PostgreSQL/Redis (public)
+- `POST /api/messages` — créer un DM (JWT requis)
+- `GET /api/messages/history/:otherUserId?limit=50&cursor=<messageId>` — historique paginé (JWT requis, limite 1..100)
+- `GET /api/messages/:id` — récupérer un DM auquel l'utilisateur participe
+- `PATCH /api/messages/:id` — modifier son propre DM
+- `DELETE /api/messages/:id` — supprimer son propre DM
 
-Pour l'intégration actuelle, l'identité REST est transmise avec `x-user-id`.
+Création :
 
-## WebSocket
-
-Namespace :
-
-    /messages
-
-Connexion :
-
-```js
-const socket = io("http://localhost:3004/messages", {
-  auth: { userId: "u1" }
-});
+```json
+{ "recipientId": "uuid-destinataire", "content": "Salut!" }
 ```
 
-Envoi :
+`content` est obligatoire et limité à 4000 caractères, en REST comme en WebSocket.
 
-```js
-socket.emit("private-message.send", {
-  recipientId: "u2",
-  content: "Salut!"
-});
-```
+## Temps réel
 
-Réception :
+Namespace Socket.IO : `/messages`.
 
-```js
-socket.on("private-message.created", (message) => {
-  console.log(message);
-});
-```
+Émission client : `private-message.send` avec le même schéma que la création REST.
 
-## Redis
+Événements serveur : `private-message.created`, `private-message.updated`, `private-message.deleted`.
 
-Le service utilise deux connexions Redis séparées :
-- `publisher` pour `PUBLISH`;
-- `subscriber` pour `SUBSCRIBE`.
-
-C'est nécessaire parce qu'une connexion Redis passée en mode subscriber ne doit pas être réutilisée comme connexion normale de publication.
+Le client est placé dans la room `user:<sub>` dérivée du JWT vérifié. Il ne choisit donc pas son identité.
 
 ## Variables d'environnement
-
-Copier `.env.example` vers `.env`.
 
 ```env
 PORT=3004
 DATABASE_URL="postgresql://message_service:message_service_dev@localhost:5432/chatvardage_messages?schema=public"
 REDIS_URL="redis://:chatvardage_redis_dev@localhost:6379"
+JWT_SECRET="change-me-minimum-32-characters-long"
+CORS_ORIGINS="http://localhost:5173"
 ```
 
-Dans Docker Compose, les hostnames deviennent `postgres` et `redis`.
+Dans Docker Compose, utiliser `postgres` et `redis` comme hostnames. `CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`).
 
 ## Docker
 
-Le Dockerfile :
-1. installe les dépendances;
-2. exécute `prisma generate`;
-3. compile NestJS;
-4. au démarrage, exécute `prisma migrate deploy`;
-5. démarre le Message-Service.
+Le build génère Prisma et compile NestJS. L'image finale réutilise les dépendances déjà installées dans le stage de build : aucun téléchargement de Prisma n'est effectué au démarrage. Le conteneur exécute `prisma migrate deploy`, puis `node dist/main`.
 
-Le fichier `COMPOSE_A_AJOUTER.yml` contient le bloc à intégrer dans Infra.
+L'orchestration complète appartient au dépôt `A26_5A6_01-Infra`.
 
-Le Message-Service dépend de PostgreSQL **et** Redis.
+## Vérification
+
+Après le lancement via Infra :
+
+```powershell
+Invoke-RestMethod http://localhost:3004/api/health
+```
+
+Le résultat attendu lorsque tout fonctionne est `status=ok`, `database=ok`, `redis=ok`. En cas de panne partielle, l'endpoint retourne `status=degraded` et indique séparément l'état de PostgreSQL et Redis.
+
+Avant une PR : exécuter lint, tests avec couverture, build et audit selon les scripts présents dans la branche de développement de l'équipe.

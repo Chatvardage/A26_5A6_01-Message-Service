@@ -43,8 +43,19 @@ describe("MessagesService", () => {
   });
   it("returns history", async () => {
     prisma.privateMessage.findMany.mockResolvedValue([msg]);
-    await expect(service.history("u1", "u2")).resolves.toEqual([msg]);
+    await expect(service.history("u1", "u2", { limit: 50 })).resolves.toEqual([
+      msg,
+    ]);
     expect(prisma.privateMessage.findMany).toHaveBeenCalled();
+  });
+  it("returns paginated history with cursor", async () => {
+    prisma.privateMessage.findMany.mockResolvedValue([msg]);
+    await expect(
+      service.history("u1", "u2", { cursor: "m0", limit: 10 }),
+    ).resolves.toEqual([msg]);
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: { id: "m0" }, skip: 1, take: 10 }),
+    );
   });
   it("findOne not found", async () => {
     prisma.privateMessage.findUnique.mockResolvedValue(null);

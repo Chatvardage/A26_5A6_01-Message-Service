@@ -92,6 +92,27 @@ describe("RedisService", () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
+  it("reuses the same connection promise while Redis is connecting", async () => {
+    let resolveConnect!: () => void;
+    connect.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveConnect = resolve;
+        }),
+    );
+
+    const s = new RedisService();
+    const first = s.ping();
+    const second = s.ping();
+
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    resolveConnect();
+
+    await expect(first).resolves.toBe("PONG");
+    await expect(second).resolves.toBe("PONG");
+  });
+
   it("uses configured URL", () => {
     process.env.REDIS_URL = "redis://x";
 

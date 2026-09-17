@@ -3,59 +3,65 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Param,
   Patch,
   Post,
+  Query,
+  Req,
+  UseGuards,
 } from "@nestjs/common";
 import { PrivateMessage } from "@prisma/client";
+import { AuthenticatedRequest, JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { CreateMessageDto } from "./dto/create-message.dto";
+import { HistoryQueryDto } from "./dto/history-query.dto";
 import { UpdateMessageDto } from "./dto/update-message.dto";
 import { MessagesService } from "./messages.service";
 
 @Controller("messages")
+@UseGuards(JwtAuthGuard)
 export class MessagesController {
   constructor(private readonly messages: MessagesService) {}
 
   @Post()
   create(
-    @Headers("x-user-id") userId: string,
+    @Req() req: AuthenticatedRequest,
     @Body() dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
-    return this.messages.create(userId, dto);
+    return this.messages.create(req.auth.sub, dto);
   }
 
   @Get("history/:otherUserId")
   history(
-    @Headers("x-user-id") userId: string,
+    @Req() req: AuthenticatedRequest,
     @Param("otherUserId") otherUserId: string,
+    @Query() query: HistoryQueryDto,
   ): Promise<PrivateMessage[]> {
-    return this.messages.history(userId, otherUserId);
+    return this.messages.history(req.auth.sub, otherUserId, query);
   }
 
   @Get(":id")
   findOne(
-    @Headers("x-user-id") userId: string,
+    @Req() req: AuthenticatedRequest,
     @Param("id") id: string,
   ): Promise<PrivateMessage> {
-    return this.messages.findOne(userId, id);
+    return this.messages.findOne(req.auth.sub, id);
   }
 
   @Patch(":id")
   update(
-    @Headers("x-user-id") userId: string,
+    @Req() req: AuthenticatedRequest,
     @Param("id") id: string,
     @Body() dto: UpdateMessageDto,
   ): Promise<PrivateMessage> {
-    return this.messages.update(userId, id, dto);
+    return this.messages.update(req.auth.sub, id, dto);
   }
 
   @Delete(":id")
   async remove(
-    @Headers("x-user-id") userId: string,
+    @Req() req: AuthenticatedRequest,
     @Param("id") id: string,
   ): Promise<{ deleted: true }> {
-    await this.messages.remove(userId, id);
+    await this.messages.remove(req.auth.sub, id);
     return { deleted: true };
   }
 }
