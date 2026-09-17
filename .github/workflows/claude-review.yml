@@ -18,6 +18,7 @@ jobs:
       - name: Run Claude Review
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_MODEL: "claude-sonnet-4-6"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Capture the changes made in this PR
