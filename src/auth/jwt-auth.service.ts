@@ -71,7 +71,19 @@ export class JwtAuthService {
       );
     }
 
-    if (!user.id || !user.role || !user.pseudo || !user.courriel) {
+    const validRoles: AuthenticatedUser["role"][] = [
+      "admin",
+      "moderateur",
+      "utilisateur",
+    ];
+
+    if (
+      typeof user.id !== "string" ||
+      typeof user.pseudo !== "string" ||
+      typeof user.courriel !== "string" ||
+      typeof user.role !== "string" ||
+      !validRoles.includes(user.role)
+    ) {
       throw new ServiceUnavailableException(
         "Réponse invalide du service d'authentification",
       );

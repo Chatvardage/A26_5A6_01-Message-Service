@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { MessagesService } from "./messages.service";
 
 describe("MessagesService", () => {
@@ -18,6 +22,7 @@ describe("MessagesService", () => {
       privateMessage: {
         create: jest.fn(),
         findMany: jest.fn(),
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -49,6 +54,7 @@ describe("MessagesService", () => {
     expect(prisma.privateMessage.findMany).toHaveBeenCalled();
   });
   it("returns paginated history with cursor", async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue({ id: "m0" });
     prisma.privateMessage.findMany.mockResolvedValue([msg]);
     await expect(
       service.history("u1", "u2", { cursor: "m0", limit: 10 }),
@@ -56,6 +62,15 @@ describe("MessagesService", () => {
     expect(prisma.privateMessage.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ cursor: { id: "m0" }, skip: 1, take: 10 }),
     );
+  });
+  it("rejects a cursor outside the conversation", async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.history("u1", "u2", { cursor: "other-message", limit: 10 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
   });
   it("findOne not found", async () => {
     prisma.privateMessage.findUnique.mockResolvedValue(null);

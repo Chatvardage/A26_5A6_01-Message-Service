@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -36,6 +37,25 @@ export class MessagesService {
     otherUserId: string,
     query: HistoryQueryDto,
   ): Promise<PrivateMessage[]> {
+    if (query.cursor) {
+      const cursorMessage = await this.prisma.privateMessage.findFirst({
+        where: {
+          id: query.cursor,
+          OR: [
+            { senderId: userId, recipientId: otherUserId },
+            { senderId: otherUserId, recipientId: userId },
+          ],
+        },
+        select: { id: true },
+      });
+
+      if (!cursorMessage) {
+        throw new BadRequestException(
+          "Curseur invalide pour cette conversation",
+        );
+      }
+    }
+
     const messages = await this.prisma.privateMessage.findMany({
       where: {
         OR: [

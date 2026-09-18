@@ -133,6 +133,26 @@ describe("JwtAuthService", () => {
     );
   });
 
+  it.each(["superadmin", "guest", "ADMIN"])(
+    "rejects an unsupported Auth role %s",
+    async (role) => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "u1",
+          pseudo: "Alice",
+          courriel: "a@b.ca",
+          role,
+        }),
+      });
+
+      await expect(service.verifyToken("jwt")).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+    },
+  );
+
   it("rejects malformed Auth response", async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
