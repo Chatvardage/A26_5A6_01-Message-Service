@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
 import { PrismaService } from "./prisma.service";
 import { RedisService } from "./redis.service";
 
@@ -25,11 +25,17 @@ export class HealthController {
       redis = "error";
     }
 
-    return {
+    const result = {
       status: database === "ok" && redis === "ok" ? "ok" : "degraded",
       service: "message-service",
       database,
       redis,
     };
+
+    if (result.status === "degraded") {
+      throw new ServiceUnavailableException(result);
+    }
+
+    return result;
   }
 }

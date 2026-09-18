@@ -37,15 +37,24 @@ interface PrivateMessageEvent {
   updatedAt?: string;
 }
 
-const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+export function isAllowedOrigin(
+  origin: string | undefined,
+  callback: (error: Error | null, allow?: boolean) => void,
+): void {
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  // Les clients non-navigateurs (ex. Electron/CLI) peuvent ne pas envoyer Origin.
+  callback(null, origin === undefined || allowedOrigins.includes(origin));
+}
 
 @WebSocketGateway({
   namespace: "/messages",
   cors: {
-    origin: corsOrigins,
+    // Évalue CORS_ORIGINS au moment de la connexion plutôt qu'à l'import.
+    origin: isAllowedOrigin,
     credentials: false,
   },
 })
@@ -102,6 +111,9 @@ export class MessagesGateway
   ): Promise<PrivateMessage> {
     const senderId = client.data.userId;
 
+    // Socket.IO peut recevoir un événement pendant que handleConnection()
+    // termine la validation distante du JWT. On refuse alors explicitement
+    // l'action : aucune écriture n'est possible avant l'authentification.
     if (!senderId) {
       throw new WsException("Utilisateur non authentifié");
     }

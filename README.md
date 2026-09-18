@@ -78,6 +78,7 @@ DATABASE_URL="postgresql://message_service:message_service_dev@localhost:5432/ch
 REDIS_URL="redis://:chatvardage_redis_dev@localhost:6379"
 CORS_ORIGINS="http://localhost:5173"
 AUTH_SERVICE_URL=http://localhost:3001
+AUTH_SERVICE_TIMEOUT_MS=3000
 ```
 
 Dans Docker Compose, utiliser `postgres` et `redis` comme hostnames.
@@ -112,7 +113,7 @@ Le résultat attendu lorsque tout fonctionne est :
 - `database=ok`
 - `redis=ok`
 
-En cas de panne partielle, l'endpoint retourne `status=degraded` et indique séparément l'état de PostgreSQL et Redis.
+En cas de panne partielle, l'endpoint retourne **HTTP 503** avec `status=degraded` et indique séparément l'état de PostgreSQL et Redis.
 
 Avant une PR, exécuter :
 

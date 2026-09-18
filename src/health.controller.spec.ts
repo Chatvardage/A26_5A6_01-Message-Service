@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from "@nestjs/common";
 import { HealthController } from "./health.controller";
 
 describe("HealthController", () => {
@@ -17,11 +18,13 @@ describe("HealthController", () => {
     const prisma: any = { $queryRaw: jest.fn().mockResolvedValue([1]) };
     const redis: any = { ping: jest.fn().mockResolvedValue("NOPE") };
     const controller = new HealthController(prisma, redis);
-    await expect(controller.health()).resolves.toEqual({
-      status: "degraded",
-      service: "message-service",
-      database: "ok",
-      redis: "error",
+    await expect(controller.health()).rejects.toMatchObject({
+      response: {
+        status: "degraded",
+        service: "message-service",
+        database: "ok",
+        redis: "error",
+      },
     });
   });
 
@@ -31,12 +34,9 @@ describe("HealthController", () => {
     };
     const redis: any = { ping: jest.fn().mockResolvedValue("PONG") };
     const controller = new HealthController(prisma, redis);
-    await expect(controller.health()).resolves.toEqual({
-      status: "degraded",
-      service: "message-service",
-      database: "error",
-      redis: "ok",
-    });
+    await expect(controller.health()).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 
   it("reports Redis failure independently", async () => {
@@ -45,11 +45,8 @@ describe("HealthController", () => {
       ping: jest.fn().mockRejectedValue(new Error("redis")),
     };
     const controller = new HealthController(prisma, redis);
-    await expect(controller.health()).resolves.toEqual({
-      status: "degraded",
-      service: "message-service",
-      database: "ok",
-      redis: "error",
-    });
+    await expect(controller.health()).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });

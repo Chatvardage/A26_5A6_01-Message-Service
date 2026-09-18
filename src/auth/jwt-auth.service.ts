@@ -28,7 +28,13 @@ export class JwtAuthService {
       process.env.AUTH_SERVICE_URL ?? "http://localhost:3001"
     ).replace(/\/$/, "");
 
-    const timeoutMs = Number(process.env.AUTH_SERVICE_TIMEOUT_MS ?? 3000);
+    const configuredTimeout = Number(
+      process.env.AUTH_SERVICE_TIMEOUT_MS ?? 3000,
+    );
+    const timeoutMs =
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0
+        ? configuredTimeout
+        : 3000;
 
     let response: Response;
 

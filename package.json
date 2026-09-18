@@ -9,7 +9,11 @@
     "test": "jest",
     "test:cov": "jest --coverage",
     "prisma:generate": "prisma generate",
-    "lint": "eslint src --max-warnings=0"
+    "lint": "eslint src --max-warnings=0",
+    "prebuild": "prisma generate",
+    "pretest": "prisma generate",
+    "pretest:cov": "prisma generate",
+    "prelint": "prisma generate"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

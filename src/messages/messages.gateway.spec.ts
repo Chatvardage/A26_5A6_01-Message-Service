@@ -1,7 +1,44 @@
 import { UnauthorizedException } from "@nestjs/common";
-import { MessagesGateway } from "./messages.gateway";
+import { isAllowedOrigin, MessagesGateway } from "./messages.gateway";
 
 describe("MessagesGateway", () => {
+  it("accepts the default WebSocket CORS origin", () => {
+    delete process.env.CORS_ORIGINS;
+    const callback = jest.fn();
+
+    isAllowedOrigin("http://localhost:5173", callback);
+
+    expect(callback).toHaveBeenCalledWith(null, true);
+  });
+
+  it("reads and filters configured WebSocket CORS origins at connection time", () => {
+    process.env.CORS_ORIGINS = " http://one.test, ,http://two.test ";
+    const callback = jest.fn();
+
+    isAllowedOrigin("http://two.test", callback);
+
+    expect(callback).toHaveBeenCalledWith(null, true);
+    delete process.env.CORS_ORIGINS;
+  });
+
+  it("rejects an unknown WebSocket CORS origin", () => {
+    process.env.CORS_ORIGINS = "http://allowed.test";
+    const callback = jest.fn();
+
+    isAllowedOrigin("http://blocked.test", callback);
+
+    expect(callback).toHaveBeenCalledWith(null, false);
+    delete process.env.CORS_ORIGINS;
+  });
+
+  it("accepts a WebSocket client without an Origin header", () => {
+    const callback = jest.fn();
+
+    isAllowedOrigin(undefined, callback);
+
+    expect(callback).toHaveBeenCalledWith(null, true);
+  });
+
   let messages: any;
   let redis: any;
   let jwt: any;

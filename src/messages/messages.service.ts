@@ -48,6 +48,10 @@ export class MessagesService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
 
+    // La requête récupère d'abord les messages les plus récents afin que
+    // `take` sélectionne la bonne page, puis l'API les renvoie dans l'ordre
+    // chronologique attendu par l'interface de clavardage. L'UUID sert ici
+    // uniquement de bris d'égalité stable lorsque createdAt est identique.
     return messages.reverse();
   }
 

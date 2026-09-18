@@ -13,6 +13,7 @@ describe("JwtAuthService", () => {
   afterEach(() => {
     global.fetch = originalFetch;
     delete process.env.AUTH_SERVICE_URL;
+    delete process.env.AUTH_SERVICE_TIMEOUT_MS;
   });
 
   it("extracts a Bearer token", () => {
@@ -45,6 +46,49 @@ describe("JwtAuthService", () => {
       expect.objectContaining({ headers: { Authorization: "Bearer jwt" } }),
     );
   });
+  it.each(["abc", "0", "-10"])(
+    "falls back to the default timeout for invalid value %s",
+    async (value) => {
+      process.env.AUTH_SERVICE_TIMEOUT_MS = value;
+      const timeoutSpy = jest.spyOn(AbortSignal, "timeout");
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "u1",
+          pseudo: "Alice",
+          courriel: "a@b.ca",
+          role: "utilisateur",
+        }),
+      });
+
+      await service.verifyToken("jwt");
+
+      expect(timeoutSpy).toHaveBeenCalledWith(3000);
+      timeoutSpy.mockRestore();
+    },
+  );
+
+  it("uses a valid configured timeout", async () => {
+    process.env.AUTH_SERVICE_TIMEOUT_MS = "1500";
+    const timeoutSpy = jest.spyOn(AbortSignal, "timeout");
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "u1",
+        pseudo: "Alice",
+        courriel: "a@b.ca",
+        role: "utilisateur",
+      }),
+    });
+
+    await service.verifyToken("jwt");
+
+    expect(timeoutSpy).toHaveBeenCalledWith(1500);
+    timeoutSpy.mockRestore();
+  });
+
   it("maps 401 to unauthorized", async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
     await expect(service.verifyToken("bad")).rejects.toBeInstanceOf(
