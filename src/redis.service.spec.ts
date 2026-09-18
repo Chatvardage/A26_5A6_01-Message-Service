@@ -7,6 +7,7 @@ const connect = jest.fn(),
   publish = jest.fn(),
   subscribe = jest.fn(),
   on = jest.fn(),
+  removeListener = jest.fn(),
   disconnect = jest.fn();
 
 let instances: any[] = [];
@@ -21,6 +22,7 @@ jest.mock("ioredis", () => ({
       publish,
       subscribe,
       on,
+      removeListener,
       disconnect,
     };
 
@@ -71,6 +73,18 @@ describe("RedisService", () => {
 
     expect(subscribe).toHaveBeenCalledWith("a", "b");
     expect(on).toHaveBeenCalledWith("message", h);
+  });
+
+  it("replaces the previous message handler on repeated subscribe", async () => {
+    const s = new RedisService();
+    const first = jest.fn();
+    const second = jest.fn();
+
+    await s.subscribe(["a"], first);
+    await s.subscribe(["a"], second);
+
+    expect(removeListener).toHaveBeenCalledWith("message", first);
+    expect(on).toHaveBeenLastCalledWith("message", second);
   });
 
   it("disconnects non-ended clients", () => {

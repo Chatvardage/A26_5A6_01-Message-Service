@@ -48,6 +48,8 @@ Création :
 }
 ```
 
+`recipientId` doit être un UUID valide et doit être différent de l’identifiant de l’expéditeur. L’existence du destinataire demeure gérée par le domaine Auth/Utilisateurs; Message-Service ne duplique pas cette source de vérité.
+
 `content` est obligatoire et limité à 4000 caractères, en REST comme en WebSocket.
 
 ## Temps réel
@@ -89,7 +91,7 @@ En Docker global, le service Auth est accessible avec :
 AUTH_SERVICE_URL=http://auth-service:3001
 ```
 
-`CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`).
+`CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`). Les connexions WebSocket sans en-tête `Origin` restent acceptées volontairement afin de supporter les clients non-navigateurs (par exemple Electron/Socket.IO).
 
 ## Docker
 

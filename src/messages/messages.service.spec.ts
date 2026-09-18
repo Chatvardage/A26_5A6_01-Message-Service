@@ -39,6 +39,13 @@ describe("MessagesService", () => {
     ).resolves.toBe(msg);
     expect(redis.publish).toHaveBeenCalledWith("private-message.created", msg);
   });
+  it("rejects a private message sent to self", async () => {
+    await expect(
+      service.create("u1", { recipientId: "u1", content: "hi" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.privateMessage.create).not.toHaveBeenCalled();
+    expect(redis.publish).not.toHaveBeenCalled();
+  });
   it("does not publish when create fails", async () => {
     prisma.privateMessage.create.mockRejectedValue(new Error("db"));
     await expect(

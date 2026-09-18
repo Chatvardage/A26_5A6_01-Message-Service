@@ -6,6 +6,7 @@ export class RedisService implements OnModuleDestroy {
   readonly publisher: Redis;
   readonly subscriber: Redis;
   private readonly connectionPromises = new WeakMap<Redis, Promise<void>>();
+  private messageHandler?: (channel: string, payload: string) => void;
 
   constructor() {
     const url = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -48,6 +49,12 @@ export class RedisService implements OnModuleDestroy {
   ): Promise<void> {
     await this.ensureConnected(this.subscriber);
     await this.subscriber.subscribe(...channels);
+
+    if (this.messageHandler) {
+      this.subscriber.removeListener("message", this.messageHandler);
+    }
+
+    this.messageHandler = handler;
     this.subscriber.on("message", handler);
   }
 

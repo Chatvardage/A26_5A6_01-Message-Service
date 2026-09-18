@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -93,6 +94,12 @@ describe("JwtAuthService", () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
     await expect(service.verifyToken("bad")).rejects.toBeInstanceOf(
       UnauthorizedException,
+    );
+  });
+  it("maps 403 to forbidden", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 403 });
+    await expect(service.verifyToken("blocked")).rejects.toBeInstanceOf(
+      ForbiddenException,
     );
   });
   it("maps network errors to unavailable", async () => {

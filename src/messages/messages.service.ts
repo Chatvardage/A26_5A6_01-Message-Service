@@ -22,6 +22,12 @@ export class MessagesService {
     senderId: string,
     dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
+    if (dto.recipientId === senderId) {
+      throw new BadRequestException(
+        "Impossible de s’envoyer un message privé à soi-même",
+      );
+    }
+
     // 1) PostgreSQL is the source of truth.
     const message = await this.prisma.privateMessage.create({
       data: { senderId, recipientId: dto.recipientId, content: dto.content },

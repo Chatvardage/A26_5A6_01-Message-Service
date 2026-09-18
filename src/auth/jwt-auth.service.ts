@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -53,6 +54,12 @@ export class JwtAuthService {
 
     if (response.status === 401) {
       throw new UnauthorizedException("Jeton invalide, expiré ou révoqué");
+    }
+
+    if (response.status === 403) {
+      throw new ForbiddenException(
+        "Accès refusé par le service d’authentification",
+      );
     }
 
     if (!response.ok) {
