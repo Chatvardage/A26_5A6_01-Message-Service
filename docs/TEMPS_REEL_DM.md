@@ -31,3 +31,11 @@ Même principe avec :
 - `private-message.deleted`
 
 Pour une suppression, l'événement contient encore `senderId` et `recipientId`, même si la ligne vient d'être supprimée, afin de savoir quels clients doivent recevoir l'événement.
+
+## Authentification C2
+
+Les connexions REST utilisent `Authorization: Bearer <JWT>` et Socket.IO utilise `auth.token`. Le `userId` est dérivé du claim signé `sub`; il n'est jamais accepté directement depuis le client.
+
+## Authentification et origine WebSocket
+
+La validation du JWT est déléguée à Auth-Service et utilise `AUTH_SERVICE_TIMEOUT_MS` (3000 ms par défaut). Les origines présentes dans l’en-tête `Origin` doivent appartenir à `CORS_ORIGINS`. Une connexion sans en-tête `Origin` est acceptée volontairement pour permettre les clients non-navigateurs, notamment Electron/Socket.IO.

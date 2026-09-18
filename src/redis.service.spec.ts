@@ -7,6 +7,7 @@ const connect = jest.fn(),
   publish = jest.fn(),
   subscribe = jest.fn(),
   on = jest.fn(),
+  removeListener = jest.fn(),
   disconnect = jest.fn();
 
 let instances: any[] = [];
@@ -21,6 +22,7 @@ jest.mock("ioredis", () => ({
       publish,
       subscribe,
       on,
+      removeListener,
       disconnect,
     };
 
@@ -73,6 +75,18 @@ describe("RedisService", () => {
     expect(on).toHaveBeenCalledWith("message", h);
   });
 
+  it("replaces the previous message handler on repeated subscribe", async () => {
+    const s = new RedisService();
+    const first = jest.fn();
+    const second = jest.fn();
+
+    await s.subscribe(["a"], first);
+    await s.subscribe(["a"], second);
+
+    expect(removeListener).toHaveBeenCalledWith("message", first);
+    expect(on).toHaveBeenLastCalledWith("message", second);
+  });
+
   it("disconnects non-ended clients", () => {
     const s = new RedisService();
 
@@ -90,6 +104,27 @@ describe("RedisService", () => {
     s.onModuleDestroy();
 
     expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("reuses the same connection promise while Redis is connecting", async () => {
+    let resolveConnect!: () => void;
+    connect.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveConnect = resolve;
+        }),
+    );
+
+    const s = new RedisService();
+    const first = s.ping();
+    const second = s.ping();
+
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    resolveConnect();
+
+    await expect(first).resolves.toBe("PONG");
+    await expect(second).resolves.toBe("PONG");
   });
 
   it("uses configured URL", () => {

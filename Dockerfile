@@ -18,14 +18,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 
-# Génère le Prisma Client dans le node_modules du conteneur final
-RUN npx prisma generate
+# Le Prisma Client généré est nécessaire à l'exécution.
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
 EXPOSE 3004
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

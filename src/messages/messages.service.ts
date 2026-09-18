@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import { PrivateMessage } from "@prisma/client";
 import { PrismaService } from "../prisma.service";
 import { RedisService } from "../redis.service";
 import { CreateMessageDto } from "./dto/create-message.dto";
+import { HistoryQueryDto } from "./dto/history-query.dto";
 import { UpdateMessageDto } from "./dto/update-message.dto";
 
 @Injectable()
@@ -20,6 +22,12 @@ export class MessagesService {
     senderId: string,
     dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
+    if (dto.recipientId === senderId) {
+      throw new BadRequestException(
+        "Impossible de s’envoyer un message privé à soi-même",
+      );
+    }
+
     // 1) PostgreSQL is the source of truth.
     const message = await this.prisma.privateMessage.create({
       data: { senderId, recipientId: dto.recipientId, content: dto.content },
@@ -30,16 +38,47 @@ export class MessagesService {
     return message;
   }
 
-  history(userId: string, otherUserId: string): Promise<PrivateMessage[]> {
-    return this.prisma.privateMessage.findMany({
+  async history(
+    userId: string,
+    otherUserId: string,
+    query: HistoryQueryDto,
+  ): Promise<PrivateMessage[]> {
+    if (query.cursor) {
+      const cursorMessage = await this.prisma.privateMessage.findFirst({
+        where: {
+          id: query.cursor,
+          OR: [
+            { senderId: userId, recipientId: otherUserId },
+            { senderId: otherUserId, recipientId: userId },
+          ],
+        },
+        select: { id: true },
+      });
+
+      if (!cursorMessage) {
+        throw new BadRequestException(
+          "Curseur invalide pour cette conversation",
+        );
+      }
+    }
+
+    const messages = await this.prisma.privateMessage.findMany({
       where: {
         OR: [
           { senderId: userId, recipientId: otherUserId },
           { senderId: otherUserId, recipientId: userId },
         ],
       },
-      orderBy: { createdAt: "asc" },
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      take: query.limit,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
+
+    // La requête récupère d'abord les messages les plus récents afin que
+    // `take` sélectionne la bonne page, puis l'API les renvoie dans l'ordre
+    // chronologique attendu par l'interface de clavardage. L'UUID sert ici
+    // uniquement de bris d'égalité stable lorsque createdAt est identique.
+    return messages.reverse();
   }
 
   async findOne(userId: string, id: string): Promise<PrivateMessage> {

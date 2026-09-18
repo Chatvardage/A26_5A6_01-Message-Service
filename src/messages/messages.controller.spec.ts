@@ -1,26 +1,44 @@
 import { MessagesController } from "./messages.controller";
+
 describe("MessagesController", () => {
-  let s: any, c: MessagesController;
+  let service: any;
+  let controller: MessagesController;
+  const req: any = { auth: { id: "u1" } };
+
   beforeEach(() => {
-    s = {
+    service = {
       create: jest.fn(),
       history: jest.fn(),
       findOne: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
     };
-    c = new MessagesController(s);
+    controller = new MessagesController(service);
   });
-  it("delegates CRUD", async () => {
-    s.create.mockResolvedValue(1);
-    s.history.mockResolvedValue([]);
-    s.findOne.mockResolvedValue(1);
-    s.update.mockResolvedValue(1);
-    s.remove.mockResolvedValue(undefined);
-    expect(await c.create("u1", { recipientId: "u2", content: "x" })).toBe(1);
-    expect(await c.history("u1", "u2")).toEqual([]);
-    expect(await c.findOne("u1", "m")).toBe(1);
-    expect(await c.update("u1", "m", { content: "y" })).toBe(1);
-    expect(await c.remove("u1", "m")).toEqual({ deleted: true });
+
+  it("delegates authenticated CRUD operations", async () => {
+    const query = { limit: 50 };
+    service.create.mockResolvedValue(1);
+    service.history.mockResolvedValue([]);
+    service.findOne.mockResolvedValue(1);
+    service.update.mockResolvedValue(1);
+    service.remove.mockResolvedValue(undefined);
+
+    expect(
+      await controller.create(req, { recipientId: "u2", content: "x" }),
+    ).toBe(1);
+    expect(await controller.history(req, "u2", query)).toEqual([]);
+    expect(await controller.findOne(req, "m")).toBe(1);
+    expect(await controller.update(req, "m", { content: "y" })).toBe(1);
+    expect(await controller.remove(req, "m")).toEqual({ deleted: true });
+
+    expect(service.create).toHaveBeenCalledWith("u1", {
+      recipientId: "u2",
+      content: "x",
+    });
+    expect(service.history).toHaveBeenCalledWith("u1", "u2", query);
+    expect(service.findOne).toHaveBeenCalledWith("u1", "m");
+    expect(service.update).toHaveBeenCalledWith("u1", "m", { content: "y" });
+    expect(service.remove).toHaveBeenCalledWith("u1", "m");
   });
 });

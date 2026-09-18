@@ -1,35 +1,75 @@
-import { Logger } from "@nestjs/common";
+import { Logger, UsePipes, ValidationPipe } from "@nestjs/common";
+import { PrivateMessage } from "@prisma/client";
 import {
   ConnectedSocket,
   MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
   OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
+  WsException,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
+import { JwtAuthService } from "../auth/jwt-auth.service";
 import { RedisService } from "../redis.service";
+import { CreateMessageDto } from "./dto/create-message.dto";
 import { MessagesService } from "./messages.service";
 
-type RoutedEvent = {
+interface SocketData {
+  userId?: string;
+}
+
+type AuthenticatedSocket = Socket<
+  Record<string, never>,
+  Record<string, never>,
+  Record<string, never>,
+  SocketData
+>;
+
+interface PrivateMessageEvent {
+  id: string;
   senderId: string;
   recipientId: string;
-  [key: string]: unknown;
-};
+  content?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export function isAllowedOrigin(
+  origin: string | undefined,
+  callback: (error: Error | null, allow?: boolean) => void,
+): void {
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  // Les clients non-navigateurs (ex. Electron/CLI) peuvent ne pas envoyer Origin.
+  callback(null, origin === undefined || allowedOrigins.includes(origin));
+}
 
 @WebSocketGateway({
   namespace: "/messages",
-  cors: { origin: true, credentials: true },
+  cors: {
+    // Évalue CORS_ORIGINS au moment de la connexion plutôt qu'à l'import.
+    origin: isAllowedOrigin,
+    credentials: false,
+  },
 })
-export class MessagesGateway implements OnGatewayInit {
+export class MessagesGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
+  private readonly logger = new Logger(MessagesGateway.name);
+
   @WebSocketServer()
   server!: Server;
-
-  private readonly logger = new Logger(MessagesGateway.name);
 
   constructor(
     private readonly messages: MessagesService,
     private readonly redis: RedisService,
+    private readonly jwt: JwtAuthService,
   ) {}
 
   async afterInit(): Promise<void> {
@@ -43,47 +83,104 @@ export class MessagesGateway implements OnGatewayInit {
     );
   }
 
-  handleConnection(client: Socket): void {
-    const userId = String(client.handshake.auth?.userId ?? "");
-    if (!userId) {
-      client.disconnect();
-      return;
-    }
+  async handleConnection(client: AuthenticatedSocket): Promise<void> {
+    try {
+      const token = this.readSocketToken(client);
+      const user = await this.jwt.verifyToken(token);
 
-    void client.join(`user:${userId}`);
+      client.data.userId = user.id;
+      await client.join(`user:${user.id}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "erreur inconnue";
+
+      this.logger.warn(`Connexion refusée [${client.id}]: ${message}`);
+      client.disconnect(true);
+    }
+  }
+
+  handleDisconnect(client: AuthenticatedSocket): void {
+    this.logger.debug(`Client déconnecté: ${client.id}`);
   }
 
   @SubscribeMessage("private-message.send")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async send(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() body: { recipientId: string; content: string },
-  ): Promise<void> {
-    const senderId = String(client.handshake.auth?.userId ?? "");
-    if (!senderId) return;
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() dto: CreateMessageDto,
+  ): Promise<PrivateMessage> {
+    const senderId = client.data.userId;
 
-    // No direct Socket.IO emit here.
-    // create() saves to PostgreSQL and then publishes to Redis.
-    // The Redis subscriber below performs the WebSocket broadcast.
-    await this.messages.create(senderId, body);
+    // Socket.IO peut recevoir un événement pendant que handleConnection()
+    // termine la validation distante du JWT. On refuse alors explicitement
+    // l'action : aucune écriture n'est possible avant l'authentification.
+    if (!senderId) {
+      throw new WsException("Utilisateur non authentifié");
+    }
+
+    return this.messages.create(senderId, dto);
+  }
+
+  private readSocketToken(client: AuthenticatedSocket): string {
+    const auth: unknown = client.handshake.auth;
+
+    if (typeof auth !== "object" || auth === null || !("token" in auth)) {
+      throw new WsException("Token JWT manquant");
+    }
+
+    const token = (auth as { token?: unknown }).token;
+
+    if (typeof token !== "string" || token.length === 0) {
+      throw new WsException("Token JWT manquant");
+    }
+
+    return token;
   }
 
   private broadcastRedisEvent(channel: string, payload: string): void {
-    try {
-      const event = JSON.parse(payload) as RoutedEvent;
+    if (
+      channel !== "private-message.created" &&
+      channel !== "private-message.updated" &&
+      channel !== "private-message.deleted"
+    ) {
+      this.logger.warn(`Canal Redis invalide ignoré: ${channel}`);
+      return;
+    }
 
-      if (!event.senderId || !event.recipientId) {
-        this.logger.warn(`Événement Redis invalide ignoré: ${channel}`);
+    let message: PrivateMessageEvent;
+
+    try {
+      const parsed: unknown = JSON.parse(payload);
+
+      if (!this.isPrivateMessageEvent(parsed)) {
+        this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
         return;
       }
 
-      this.server.to(`user:${event.senderId}`).emit(channel, event);
-
-      // Avoid a duplicate emit if sender == recipient.
-      if (event.recipientId !== event.senderId) {
-        this.server.to(`user:${event.recipientId}`).emit(channel, event);
-      }
+      message = parsed;
     } catch {
-      this.logger.warn(`Payload Redis invalide ignoré: ${channel}`);
+      this.logger.warn(`Événement Redis invalide ignoré: ${payload}`);
+      return;
     }
+
+    this.server.to(`user:${message.senderId}`).emit(channel, message);
+
+    if (message.recipientId !== message.senderId) {
+      this.server.to(`user:${message.recipientId}`).emit(channel, message);
+    }
+  }
+
+  private isPrivateMessageEvent(value: unknown): value is PrivateMessageEvent {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+
+    const event = value as Record<string, unknown>;
+
+    return (
+      typeof event.id === "string" &&
+      typeof event.senderId === "string" &&
+      typeof event.recipientId === "string"
+    );
   }
 }
