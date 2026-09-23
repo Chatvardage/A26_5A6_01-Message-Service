@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -39,6 +40,24 @@ export class MessagesController {
     return this.messages.history(req.auth.id, otherUserId, query);
   }
 
+  @Get("admin")
+  findAllForAdmin(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<PrivateMessage[]> {
+    this.requireAdmin(req);
+    return this.messages.findAllForAdmin();
+  }
+
+  @Delete("admin/:id")
+  async removeForAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Param("id") id: string,
+  ): Promise<{ deleted: true }> {
+    this.requireAdmin(req);
+    await this.messages.removeForAdmin(id);
+    return { deleted: true };
+  }
+
   @Get(":id")
   findOne(
     @Req() req: AuthenticatedRequest,
@@ -63,5 +82,11 @@ export class MessagesController {
   ): Promise<{ deleted: true }> {
     await this.messages.remove(req.auth.id, id);
     return { deleted: true };
+  }
+
+  private requireAdmin(req: AuthenticatedRequest): void {
+    if (req.auth.role !== "admin") {
+      throw new ForbiddenException("Role admin requis");
+    }
   }
 }

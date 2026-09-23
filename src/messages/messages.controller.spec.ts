@@ -1,17 +1,21 @@
+import { ForbiddenException } from "@nestjs/common";
 import { MessagesController } from "./messages.controller";
 
 describe("MessagesController", () => {
   let service: any;
   let controller: MessagesController;
-  const req: any = { auth: { id: "u1" } };
+  const req: any = { auth: { id: "u1", role: "utilisateur" } };
+  const adminReq: any = { auth: { id: "admin", role: "admin" } };
 
   beforeEach(() => {
     service = {
       create: jest.fn(),
       history: jest.fn(),
       findOne: jest.fn(),
+      findAllForAdmin: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
+      removeForAdmin: jest.fn(),
     };
     controller = new MessagesController(service);
   });
@@ -40,5 +44,21 @@ describe("MessagesController", () => {
     expect(service.findOne).toHaveBeenCalledWith("u1", "m");
     expect(service.update).toHaveBeenCalledWith("u1", "m", { content: "y" });
     expect(service.remove).toHaveBeenCalledWith("u1", "m");
+  });
+
+  it("delegates moderation actions for an admin", async () => {
+    service.findAllForAdmin.mockResolvedValue([1]);
+    service.removeForAdmin.mockResolvedValue(undefined);
+
+    expect(await controller.findAllForAdmin(adminReq)).toEqual([1]);
+    expect(await controller.removeForAdmin(adminReq, "m")).toEqual({
+      deleted: true,
+    });
+    expect(service.findAllForAdmin).toHaveBeenCalledWith();
+    expect(service.removeForAdmin).toHaveBeenCalledWith("m");
+  });
+
+  it("refuses moderation actions for non-admin users", () => {
+    expect(() => controller.findAllForAdmin(req)).toThrow(ForbiddenException);
   });
 });

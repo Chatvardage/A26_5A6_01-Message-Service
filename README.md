@@ -38,6 +38,8 @@ Auth-Service valide le jeton, vérifie sa révocation avec `version_auth` et con
 - `GET /api/messages/:id` — récupérer un DM auquel l'utilisateur participe
 - `PATCH /api/messages/:id` — modifier son propre DM
 - `DELETE /api/messages/:id` — supprimer son propre DM
+- `GET /api/messages/admin` — lister les 100 messages les plus recents (admin requis)
+- `DELETE /api/messages/admin/:id` — supprimer un message (admin requis)
 
 Création :
 
