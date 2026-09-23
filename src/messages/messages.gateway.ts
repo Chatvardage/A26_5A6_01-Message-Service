@@ -1,5 +1,5 @@
 import { Logger, UsePipes, ValidationPipe } from "@nestjs/common";
-import { PrivateMessage } from "@prisma/client";
+import { PrivateMessage, RoomMessage } from "@prisma/client";
 import {
   ConnectedSocket,
   MessageBody,
@@ -14,7 +14,12 @@ import {
 import { Server, Socket } from "socket.io";
 import { JwtAuthService } from "../auth/jwt-auth.service";
 import { RedisService } from "../redis.service";
+import { RoomMessagesService } from "../room-messages/room-messages.service";
+import { RoomIdDto } from "../room-messages/dto/room-id.dto";
+import { SendRoomMessageDto } from "../room-messages/dto/send-room-message.dto";
+import { RoomsClientService } from "../rooms/rooms-client.service";
 import { CreateMessageDto } from "./dto/create-message.dto";
+import { TypingDto } from "./dto/typing.dto";
 import { MessagesService } from "./messages.service";
 
 interface SocketData {
@@ -36,6 +41,27 @@ interface PrivateMessageEvent {
   createdAt?: string;
   updatedAt?: string;
 }
+
+interface RoomMessageEvent {
+  id: string;
+  roomId: string;
+  authorId: string;
+  content?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+const PRIVATE_MESSAGE_CHANNELS = [
+  "private-message.created",
+  "private-message.updated",
+  "private-message.deleted",
+];
+
+const ROOM_MESSAGE_CHANNELS = [
+  "room-message.created",
+  "room-message.updated",
+  "room-message.deleted",
+];
 
 export function isAllowedOrigin(
   origin: string | undefined,
@@ -70,15 +96,13 @@ export class MessagesGateway
     private readonly messages: MessagesService,
     private readonly redis: RedisService,
     private readonly jwt: JwtAuthService,
+    private readonly roomMessages: RoomMessagesService,
+    private readonly rooms: RoomsClientService,
   ) {}
 
   async afterInit(): Promise<void> {
     await this.redis.subscribe(
-      [
-        "private-message.created",
-        "private-message.updated",
-        "private-message.deleted",
-      ],
+      [...PRIVATE_MESSAGE_CHANNELS, ...ROOM_MESSAGE_CHANNELS],
       (channel, payload) => this.broadcastRedisEvent(channel, payload),
     );
   }
@@ -109,16 +133,84 @@ export class MessagesGateway
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
-    const senderId = client.data.userId;
+    const senderId = this.requireUserId(client);
+
+    return this.messages.create(senderId, dto);
+  }
+
+  @SubscribeMessage("room-message.join")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async joinRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() dto: RoomIdDto,
+  ): Promise<{ joined: true }> {
+    const userId = this.requireUserId(client);
+
+    const room = await this.rooms.getRoom(dto.roomId);
+    if (!room.membreIds.includes(userId)) {
+      throw new WsException(
+        "Vous devez être membre du salon pour rejoindre ce salon",
+      );
+    }
+
+    await client.join(`room:${dto.roomId}`);
+    return { joined: true };
+  }
+
+  @SubscribeMessage("room-message.leave")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async leaveRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() dto: RoomIdDto,
+  ): Promise<{ left: true }> {
+    await client.leave(`room:${dto.roomId}`);
+    return { left: true };
+  }
+
+  @SubscribeMessage("room-message.send")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async sendRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() dto: SendRoomMessageDto,
+  ): Promise<RoomMessage> {
+    const authorId = this.requireUserId(client);
+
+    return this.roomMessages.create(authorId, dto.roomId, {
+      content: dto.content,
+    });
+  }
+
+  @SubscribeMessage("typing")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  typing(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() dto: TypingDto,
+  ): void {
+    const userId = this.requireUserId(client);
+
+    // Événement purement éphémère : ni persisté, ni routé par Redis/Postgres.
+    const room =
+      dto.scope === "room" ? `room:${dto.targetId}` : `user:${dto.targetId}`;
+
+    client.to(room).emit("typing", {
+      userId,
+      scope: dto.scope,
+      targetId: dto.targetId,
+      isTyping: dto.isTyping,
+    });
+  }
+
+  private requireUserId(client: AuthenticatedSocket): string {
+    const userId = client.data.userId;
 
     // Socket.IO peut recevoir un événement pendant que handleConnection()
     // termine la validation distante du JWT. On refuse alors explicitement
     // l'action : aucune écriture n'est possible avant l'authentification.
-    if (!senderId) {
+    if (!userId) {
       throw new WsException("Utilisateur non authentifié");
     }
 
-    return this.messages.create(senderId, dto);
+    return userId;
   }
 
   private readSocketToken(client: AuthenticatedSocket): string {
@@ -138,15 +230,20 @@ export class MessagesGateway
   }
 
   private broadcastRedisEvent(channel: string, payload: string): void {
-    if (
-      channel !== "private-message.created" &&
-      channel !== "private-message.updated" &&
-      channel !== "private-message.deleted"
-    ) {
-      this.logger.warn(`Canal Redis invalide ignoré: ${channel}`);
+    if (PRIVATE_MESSAGE_CHANNELS.includes(channel)) {
+      this.broadcastPrivateMessageEvent(channel, payload);
       return;
     }
 
+    if (ROOM_MESSAGE_CHANNELS.includes(channel)) {
+      this.broadcastRoomMessageEvent(channel, payload);
+      return;
+    }
+
+    this.logger.warn(`Canal Redis invalide ignoré: ${channel}`);
+  }
+
+  private broadcastPrivateMessageEvent(channel: string, payload: string): void {
     let message: PrivateMessageEvent;
 
     try {
@@ -170,6 +267,26 @@ export class MessagesGateway
     }
   }
 
+  private broadcastRoomMessageEvent(channel: string, payload: string): void {
+    let message: RoomMessageEvent;
+
+    try {
+      const parsed: unknown = JSON.parse(payload);
+
+      if (!this.isRoomMessageEvent(parsed)) {
+        this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
+        return;
+      }
+
+      message = parsed;
+    } catch {
+      this.logger.warn(`Événement Redis invalide ignoré: ${payload}`);
+      return;
+    }
+
+    this.server.to(`room:${message.roomId}`).emit(channel, message);
+  }
+
   private isPrivateMessageEvent(value: unknown): value is PrivateMessageEvent {
     if (typeof value !== "object" || value === null) {
       return false;
@@ -181,6 +298,20 @@ export class MessagesGateway
       typeof event.id === "string" &&
       typeof event.senderId === "string" &&
       typeof event.recipientId === "string"
+    );
+  }
+
+  private isRoomMessageEvent(value: unknown): value is RoomMessageEvent {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+
+    const event = value as Record<string, unknown>;
+
+    return (
+      typeof event.id === "string" &&
+      typeof event.roomId === "string" &&
+      typeof event.authorId === "string"
     );
   }
 }

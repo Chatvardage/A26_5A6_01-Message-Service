@@ -42,6 +42,8 @@ describe("MessagesGateway", () => {
   let messages: any;
   let redis: any;
   let jwt: any;
+  let roomMessages: any;
+  let rooms: any;
   let gateway: MessagesGateway;
   let emit: jest.Mock;
   let to: jest.Mock;
@@ -50,13 +52,15 @@ describe("MessagesGateway", () => {
     messages = { create: jest.fn() };
     redis = { subscribe: jest.fn() };
     jwt = { verifyToken: jest.fn() };
-    gateway = new MessagesGateway(messages, redis, jwt);
+    roomMessages = { create: jest.fn() };
+    rooms = { getRoom: jest.fn() };
+    gateway = new MessagesGateway(messages, redis, jwt, roomMessages, rooms);
     emit = jest.fn();
     to = jest.fn(() => ({ emit }));
     (gateway as any).server = { to };
   });
 
-  it("subscribes to all DM channels and broadcasts to both users", async () => {
+  it("subscribes to all DM and room channels and broadcasts DM events to both users", async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -70,6 +74,9 @@ describe("MessagesGateway", () => {
         "private-message.created",
         "private-message.updated",
         "private-message.deleted",
+        "room-message.created",
+        "room-message.updated",
+        "room-message.deleted",
       ],
       expect.any(Function),
     );
@@ -113,7 +120,7 @@ describe("MessagesGateway", () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("ignores invalid JSON", async () => {
+  it("ignores invalid JSON for a DM event", async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -125,7 +132,7 @@ describe("MessagesGateway", () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("ignores a malformed Redis payload", async () => {
+  it("ignores a malformed DM Redis payload", async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -134,6 +141,58 @@ describe("MessagesGateway", () => {
     );
     await gateway.afterInit();
     handler("private-message.created", JSON.stringify({ senderId: "u1" }));
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("broadcasts a room event to the room", async () => {
+    let handler!: (channel: string, payload: string) => void;
+    redis.subscribe.mockImplementation(
+      async (_channels: string[], h: typeof handler) => {
+        handler = h;
+      },
+    );
+    await gateway.afterInit();
+    handler(
+      "room-message.created",
+      JSON.stringify({ id: "m1", roomId: "r1", authorId: "u1" }),
+    );
+    expect(to).toHaveBeenCalledWith("room:r1");
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores invalid JSON for a room event", async () => {
+    let handler!: (channel: string, payload: string) => void;
+    redis.subscribe.mockImplementation(
+      async (_channels: string[], h: typeof handler) => {
+        handler = h;
+      },
+    );
+    await gateway.afterInit();
+    handler("room-message.created", "{");
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("ignores a malformed room Redis payload", async () => {
+    let handler!: (channel: string, payload: string) => void;
+    redis.subscribe.mockImplementation(
+      async (_channels: string[], h: typeof handler) => {
+        handler = h;
+      },
+    );
+    await gateway.afterInit();
+    handler("room-message.created", JSON.stringify({ authorId: "u1" }));
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("ignores a null room Redis payload", async () => {
+    let handler!: (channel: string, payload: string) => void;
+    redis.subscribe.mockImplementation(
+      async (_channels: string[], h: typeof handler) => {
+        handler = h;
+      },
+    );
+    await gateway.afterInit();
+    handler("room-message.created", "null");
     expect(emit).not.toHaveBeenCalled();
   });
 
@@ -271,5 +330,111 @@ describe("MessagesGateway", () => {
     await gateway.afterInit();
     handler("private-message.created", payload);
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  // --- room-message.join / leave / send ---
+
+  it("refuses joining a room when the socket has no authenticated user", async () => {
+    const client: any = { data: {} };
+    await expect(gateway.joinRoom(client, { roomId: "r1" })).rejects.toThrow(
+      "Utilisateur non authentifié",
+    );
+    expect(rooms.getRoom).not.toHaveBeenCalled();
+  });
+
+  it("refuses joining a room the caller is not a member of", async () => {
+    rooms.getRoom.mockResolvedValue({ id: "r1", membreIds: ["u2"] });
+    const client: any = { data: { userId: "u1" }, join: jest.fn() };
+
+    await expect(gateway.joinRoom(client, { roomId: "r1" })).rejects.toThrow(
+      "Vous devez être membre du salon pour rejoindre ce salon",
+    );
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it("joins the room's Socket.IO room for a member", async () => {
+    rooms.getRoom.mockResolvedValue({ id: "r1", membreIds: ["u1"] });
+    const client: any = {
+      data: { userId: "u1" },
+      join: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await expect(gateway.joinRoom(client, { roomId: "r1" })).resolves.toEqual({
+      joined: true,
+    });
+    expect(client.join).toHaveBeenCalledWith("room:r1");
+  });
+
+  it("leaves the room's Socket.IO room", async () => {
+    const client: any = { leave: jest.fn().mockResolvedValue(undefined) };
+
+    await expect(gateway.leaveRoom(client, { roomId: "r1" })).resolves.toEqual({
+      left: true,
+    });
+    expect(client.leave).toHaveBeenCalledWith("room:r1");
+  });
+
+  it("refuses sending a room message when the socket has no authenticated user", async () => {
+    const client: any = { data: {} };
+    await expect(
+      gateway.sendRoom(client, { roomId: "r1", content: "x" }),
+    ).rejects.toThrow("Utilisateur non authentifié");
+    expect(roomMessages.create).not.toHaveBeenCalled();
+  });
+
+  it("delegates sending a room message using the authenticated socket user", async () => {
+    roomMessages.create.mockResolvedValue({ id: "m1" });
+    const client: any = { data: { userId: "u1" } };
+
+    await gateway.sendRoom(client, { roomId: "r1", content: "x" });
+    expect(roomMessages.create).toHaveBeenCalledWith("u1", "r1", {
+      content: "x",
+    });
+  });
+
+  // --- typing ---
+
+  it("refuses a typing event when the socket has no authenticated user", () => {
+    const client: any = { data: {}, to: jest.fn() };
+    expect(() =>
+      gateway.typing(client, { scope: "room", targetId: "r1", isTyping: true }),
+    ).toThrow("Utilisateur non authentifié");
+    expect(client.to).not.toHaveBeenCalled();
+  });
+
+  it("relays a room-scoped typing event to the room", () => {
+    const typingEmit = jest.fn();
+    const client: any = {
+      data: { userId: "u1" },
+      to: jest.fn(() => ({ emit: typingEmit })),
+    };
+
+    gateway.typing(client, { scope: "room", targetId: "r1", isTyping: true });
+
+    expect(client.to).toHaveBeenCalledWith("room:r1");
+    expect(typingEmit).toHaveBeenCalledWith("typing", {
+      userId: "u1",
+      scope: "room",
+      targetId: "r1",
+      isTyping: true,
+    });
+  });
+
+  it("relays a DM-scoped typing event to the target user", () => {
+    const typingEmit = jest.fn();
+    const client: any = {
+      data: { userId: "u1" },
+      to: jest.fn(() => ({ emit: typingEmit })),
+    };
+
+    gateway.typing(client, { scope: "dm", targetId: "u2", isTyping: false });
+
+    expect(client.to).toHaveBeenCalledWith("user:u2");
+    expect(typingEmit).toHaveBeenCalledWith("typing", {
+      userId: "u1",
+      scope: "dm",
+      targetId: "u2",
+      isTyping: false,
+    });
   });
 });

@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { PrivateMessage } from "@prisma/client";
 import { AuthenticatedRequest, JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { ConversationSummary } from "./dto/conversation-summary.dto";
 import { CreateMessageDto } from "./dto/create-message.dto";
 import { HistoryQueryDto } from "./dto/history-query.dto";
 import { UpdateMessageDto } from "./dto/update-message.dto";
@@ -37,6 +38,13 @@ export class MessagesController {
     @Query() query: HistoryQueryDto,
   ): Promise<PrivateMessage[]> {
     return this.messages.history(req.auth.id, otherUserId, query);
+  }
+
+  @Get("conversations")
+  listConversations(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<ConversationSummary[]> {
+    return this.messages.listConversations(req.auth.id);
   }
 
   @Get(":id")

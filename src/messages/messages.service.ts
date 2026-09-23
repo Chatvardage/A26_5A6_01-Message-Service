@@ -7,6 +7,7 @@ import {
 import { PrivateMessage } from "@prisma/client";
 import { PrismaService } from "../prisma.service";
 import { RedisService } from "../redis.service";
+import { ConversationSummary } from "./dto/conversation-summary.dto";
 import { CreateMessageDto } from "./dto/create-message.dto";
 import { HistoryQueryDto } from "./dto/history-query.dto";
 import { UpdateMessageDto } from "./dto/update-message.dto";
@@ -79,6 +80,33 @@ export class MessagesService {
     // chronologique attendu par l'interface de clavardage. L'UUID sert ici
     // uniquement de bris d'égalité stable lorsque createdAt est identique.
     return messages.reverse();
+  }
+
+  async listConversations(userId: string): Promise<ConversationSummary[]> {
+    // On récupère tous les messages où l'utilisateur participe, du plus
+    // récent au plus ancien, puis on ne garde que la première occurrence
+    // (donc la plus récente) par interlocuteur. Comme la liste source est
+    // déjà triée par activité décroissante, la liste de conversations
+    // obtenue l'est également, sans requête de regroupement supplémentaire.
+    const messages = await this.prisma.privateMessage.findMany({
+      where: { OR: [{ senderId: userId }, { recipientId: userId }] },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+
+    const seen = new Set<string>();
+    const conversations: ConversationSummary[] = [];
+
+    for (const message of messages) {
+      const otherUserId =
+        message.senderId === userId ? message.recipientId : message.senderId;
+
+      if (seen.has(otherUserId)) continue;
+      seen.add(otherUserId);
+
+      conversations.push({ otherUserId, lastMessage: message });
+    }
+
+    return conversations;
   }
 
   async findOne(userId: string, id: string): Promise<PrivateMessage> {

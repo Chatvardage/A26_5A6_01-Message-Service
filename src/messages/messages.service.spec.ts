@@ -79,6 +79,55 @@ describe("MessagesService", () => {
 
     expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
   });
+  it("returns an empty conversation list when the user has no messages", async () => {
+    prisma.privateMessage.findMany.mockResolvedValue([]);
+    await expect(service.listConversations("u1")).resolves.toEqual([]);
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ senderId: "u1" }, { recipientId: "u1" }] },
+      }),
+    );
+  });
+
+  it("lists one conversation per counterpart, most recent activity first", async () => {
+    const newestWithU2 = {
+      id: "m3",
+      senderId: "u2",
+      recipientId: "u1",
+      content: "yo",
+      createdAt: new Date("2026-01-03"),
+      updatedAt: new Date("2026-01-03"),
+    };
+    const newestWithU3 = {
+      id: "m2",
+      senderId: "u1",
+      recipientId: "u3",
+      content: "hey",
+      createdAt: new Date("2026-01-02"),
+      updatedAt: new Date("2026-01-02"),
+    };
+    const olderWithU2 = {
+      id: "m1",
+      senderId: "u1",
+      recipientId: "u2",
+      content: "salut",
+      createdAt: new Date("2026-01-01"),
+      updatedAt: new Date("2026-01-01"),
+    };
+    // findMany is mocked to already return newest-first, matching the
+    // orderBy passed to Prisma.
+    prisma.privateMessage.findMany.mockResolvedValue([
+      newestWithU2,
+      newestWithU3,
+      olderWithU2,
+    ]);
+
+    await expect(service.listConversations("u1")).resolves.toEqual([
+      { otherUserId: "u2", lastMessage: newestWithU2 },
+      { otherUserId: "u3", lastMessage: newestWithU3 },
+    ]);
+  });
+
   it("findOne not found", async () => {
     prisma.privateMessage.findUnique.mockResolvedValue(null);
     await expect(service.findOne("u1", "x")).rejects.toBeInstanceOf(
