@@ -25,6 +25,61 @@ export function dureeCacheAccesMs(
   return Number(brut);
 }
 
+export type ConfigRoomsClient = {
+  /** Origine de Room-Service, sans chemin. */
+  urlService: string;
+  /** INTERNAL_SERVICE_TOKEN ; absent, chaque appel échoue en 503. */
+  jetonInterne: string | null;
+  delaiMs: number;
+  dureeCacheMs: number;
+};
+
+/**
+ * Lit et valide la configuration au démarrage (erreur immédiate plutôt
+ * qu'un 503 générique au premier message de salon), comme
+ * lireConfigClientAuth pour Authentification :
+ * - `ROOM_SERVICE_URL` : origine HTTP(S) seule, sans chemin ni paramètres.
+ *   HTTPS n'est pas exigé en production : l'appel reste sur le réseau interne
+ *   des services, jamais relayé par Serveur-API ;
+ * - `ROOM_SERVICE_TIMEOUT_MS` : entier ≥ 1, 3000 ms par défaut ;
+ * - `ROOM_ACCESS_CACHE_TTL_MS` : voir dureeCacheAccesMs.
+ */
+export function lireConfigRoomsClient(
+  env: NodeJS.ProcessEnv = process.env,
+): ConfigRoomsClient {
+  const brute = env.ROOM_SERVICE_URL ?? 'http://localhost:3003';
+  let url: URL;
+  try {
+    url = new URL(brute.trim().replace(/\/+$/, ''));
+  } catch {
+    throw new Error(`ROOM_SERVICE_URL doit être une URL valide : "${brute}"`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(
+      `ROOM_SERVICE_URL doit utiliser HTTP ou HTTPS : "${brute}"`,
+    );
+  }
+  if (url.pathname !== '/' || url.search !== '' || url.hash !== '') {
+    throw new Error(
+      `ROOM_SERVICE_URL ne doit pas contenir de chemin ou paramètres : "${brute}"`,
+    );
+  }
+
+  const delaiBrut = (env.ROOM_SERVICE_TIMEOUT_MS ?? '3000').trim();
+  if (!/^\d+$/.test(delaiBrut) || Number(delaiBrut) < 1) {
+    throw new Error(
+      `ROOM_SERVICE_TIMEOUT_MS doit être un entier supérieur ou égal à 1 : "${env.ROOM_SERVICE_TIMEOUT_MS}"`,
+    );
+  }
+
+  return {
+    urlService: url.origin,
+    jetonInterne: env.INTERNAL_SERVICE_TOKEN?.trim() || null,
+    delaiMs: Number(delaiBrut),
+    dureeCacheMs: dureeCacheAccesMs(env),
+  };
+}
+
 /** Accès d'un utilisateur à un salon, calculé par Room-Service. */
 export type AccesSalon = {
   salonId: string;
@@ -55,7 +110,8 @@ export type Acteur = Pick<AuthenticatedUser, 'id' | 'role'>;
  */
 @Injectable()
 export class RoomsClientService {
-  private readonly dureeCacheMs = dureeCacheAccesMs();
+  // Configuration lue et validée au démarrage du service.
+  private readonly config = lireConfigRoomsClient();
   private readonly cache = new Map<
     string,
     { acces: AccesSalon; expireA: number }
@@ -69,11 +125,14 @@ export class RoomsClientService {
       this.cache.delete(clef);
     }
     const acces = await this.demanderAcces(roomId, acteur);
-    if (this.dureeCacheMs > 0) {
+    if (this.config.dureeCacheMs > 0) {
       if (this.cache.size >= TAILLE_MAX_CACHE_ACCES) {
         this.cache.delete(this.cache.keys().next().value as string);
       }
-      this.cache.set(clef, { acces, expireA: Date.now() + this.dureeCacheMs });
+      this.cache.set(clef, {
+        acces,
+        expireA: Date.now() + this.config.dureeCacheMs,
+      });
     }
     return acces;
   }
@@ -89,33 +148,22 @@ export class RoomsClientService {
     roomId: string,
     acteur: Acteur,
   ): Promise<AccesSalon> {
-    const baseUrl = (
-      process.env.ROOM_SERVICE_URL ?? 'http://localhost:3003'
-    ).replace(/\/$/, '');
-    const jeton = process.env.INTERNAL_SERVICE_TOKEN?.trim();
+    const jeton = this.config.jetonInterne;
     if (!jeton) {
       throw new ServiceUnavailableException(
         'INTERNAL_SERVICE_TOKEN non configuré',
       );
     }
 
-    const configuredTimeout = Number(
-      process.env.ROOM_SERVICE_TIMEOUT_MS ?? 3000,
-    );
-    const timeoutMs =
-      Number.isFinite(configuredTimeout) && configuredTimeout > 0
-        ? configuredTimeout
-        : 3000;
-
     let response: Response;
 
     try {
       response = await fetch(
-        `${baseUrl}/api/internal/channels/${encodeURIComponent(roomId)}` +
+        `${this.config.urlService}/api/internal/channels/${encodeURIComponent(roomId)}` +
           `/access/${encodeURIComponent(acteur.id)}?role=${encodeURIComponent(acteur.role)}`,
         {
           headers: { 'x-internal-token': jeton },
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(this.config.delaiMs),
         },
       );
     } catch {

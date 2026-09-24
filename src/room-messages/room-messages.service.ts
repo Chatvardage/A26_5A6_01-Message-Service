@@ -8,7 +8,11 @@ import { RoomMessage } from '@prisma/client';
 import { LimiteEnvoiService } from '../limite-envoi.service';
 import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
-import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
+import {
+  AccesSalon,
+  Acteur,
+  RoomsClientService,
+} from '../rooms/rooms-client.service';
 import { CreateRoomMessageDto } from './dto/create-room-message.dto';
 import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
 import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
@@ -125,8 +129,7 @@ export class RoomMessagesService {
 
   /** L'auteur, ou un modérateur du serveur (propriétaire, admin). */
   async remove(acteur: Acteur, roomId: string, id: string): Promise<void> {
-    const acces = await this.rooms.verifierAcces(roomId, acteur);
-    this.exigerLecture(acces.peutLire, 'consulter ce contenu');
+    const acces = await this.verifierLecture(acteur, roomId);
     const existing = await this.prisma.roomMessage.findUnique({
       where: { id },
     });
@@ -164,9 +167,14 @@ export class RoomMessagesService {
     return count;
   }
 
-  private async verifierLecture(acteur: Acteur, roomId: string) {
+  /** Exige la lecture du salon ; renvoie l'accès (ex. peutModerer). */
+  private async verifierLecture(
+    acteur: Acteur,
+    roomId: string,
+  ): Promise<AccesSalon> {
     const acces = await this.rooms.verifierAcces(roomId, acteur);
     this.exigerLecture(acces.peutLire, 'consulter ce contenu');
+    return acces;
   }
 
   private exigerLecture(peutLire: boolean, verb: string): void {

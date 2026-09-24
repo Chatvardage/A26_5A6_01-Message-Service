@@ -7,6 +7,7 @@ import {
   RoomsClientService,
   TAILLE_MAX_CACHE_ACCES,
   dureeCacheAccesMs,
+  lireConfigRoomsClient,
 } from './rooms-client.service';
 
 describe('RoomsClientService', () => {
@@ -27,8 +28,9 @@ describe('RoomsClientService', () => {
   };
 
   beforeEach(() => {
-    service = new RoomsClientService();
+    // La configuration est lue à la construction (voir lireConfigRoomsClient).
     process.env.INTERNAL_SERVICE_TOKEN = 'secret-interne';
+    service = new RoomsClientService();
   });
 
   afterEach(() => {
@@ -40,6 +42,7 @@ describe('RoomsClientService', () => {
 
   it("asks Room-Service's internal route with the shared token and the global role", async () => {
     process.env.ROOM_SERVICE_URL = 'http://room-service:3003/';
+    service = new RoomsClientService();
     repondre({ ok: true, status: 200, json: async () => acces });
 
     await expect(
@@ -59,6 +62,7 @@ describe('RoomsClientService', () => {
     async (valeur) => {
       if (valeur === undefined) delete process.env.INTERNAL_SERVICE_TOKEN;
       else process.env.INTERNAL_SERVICE_TOKEN = valeur;
+      service = new RoomsClientService();
       global.fetch = jest.fn();
 
       await expect(service.verifierAcces('r1', acteur)).rejects.toBeInstanceOf(
@@ -68,22 +72,19 @@ describe('RoomsClientService', () => {
     },
   );
 
-  it.each(['abc', '0', '-10'])(
-    'falls back to the default timeout for invalid value %s',
-    async (value) => {
-      process.env.ROOM_SERVICE_TIMEOUT_MS = value;
-      const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
-      repondre({ ok: true, status: 200, json: async () => acces });
+  it('uses the default timeout (3000 ms)', async () => {
+    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+    repondre({ ok: true, status: 200, json: async () => acces });
 
-      await service.verifierAcces('r1', acteur);
+    await service.verifierAcces('r1', acteur);
 
-      expect(timeoutSpy).toHaveBeenCalledWith(3000);
-      timeoutSpy.mockRestore();
-    },
-  );
+    expect(timeoutSpy).toHaveBeenCalledWith(3000);
+    timeoutSpy.mockRestore();
+  });
 
   it('uses a valid configured timeout', async () => {
     process.env.ROOM_SERVICE_TIMEOUT_MS = '1500';
+    service = new RoomsClientService();
     const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
     repondre({ ok: true, status: 200, json: async () => acces });
 
@@ -91,6 +92,58 @@ describe('RoomsClientService', () => {
 
     expect(timeoutSpy).toHaveBeenCalledWith(1500);
     timeoutSpy.mockRestore();
+  });
+
+  describe('configuration validée au démarrage', () => {
+    it('valeurs par défaut', () => {
+      expect(lireConfigRoomsClient({})).toEqual({
+        urlService: 'http://localhost:3003',
+        jetonInterne: null,
+        delaiMs: 3000,
+        dureeCacheMs: 10_000,
+      });
+    });
+
+    it('valeurs fournies (URL et jeton nettoyés)', () => {
+      expect(
+        lireConfigRoomsClient({
+          ROOM_SERVICE_URL: ' https://room-service:3003/ ',
+          INTERNAL_SERVICE_TOKEN: ' secret ',
+          ROOM_SERVICE_TIMEOUT_MS: '1500',
+          ROOM_ACCESS_CACHE_TTL_MS: '0',
+        }),
+      ).toEqual({
+        urlService: 'https://room-service:3003',
+        jetonInterne: 'secret',
+        delaiMs: 1500,
+        dureeCacheMs: 0,
+      });
+    });
+
+    it.each([
+      ['pas une URL', 'room-service', /URL valide/],
+      ['autre protocole', 'ftp://room-service', /HTTP ou HTTPS/],
+      ['avec un chemin', 'http://room-service:3003/api', /chemin/],
+      ['avec des paramètres', 'http://room-service:3003?x=1', /chemin/],
+    ])('refuse ROOM_SERVICE_URL %s', (_cas, url, erreur) => {
+      expect(() => lireConfigRoomsClient({ ROOM_SERVICE_URL: url })).toThrow(
+        erreur,
+      );
+    });
+
+    it.each(['abc', '0', '-10', '1.5'])(
+      'refuse ROOM_SERVICE_TIMEOUT_MS=%s (au lieu de retomber en silence sur 3000)',
+      (valeur) => {
+        expect(() =>
+          lireConfigRoomsClient({ ROOM_SERVICE_TIMEOUT_MS: valeur }),
+        ).toThrow(/ROOM_SERVICE_TIMEOUT_MS/);
+      },
+    );
+
+    it('une configuration invalide empêche la construction du service', () => {
+      process.env.ROOM_SERVICE_URL = 'pas-une-url';
+      expect(() => new RoomsClientService()).toThrow(/ROOM_SERVICE_URL/);
+    });
   });
 
   it('maps 404 to not found', async () => {

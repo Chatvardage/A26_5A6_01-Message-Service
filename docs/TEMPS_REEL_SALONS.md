@@ -60,7 +60,9 @@ Les droits ne sont vérifiés qu'au `room-message.join`. Pour qu'un socket ne co
 | `supprime` (serveur supprimé) | ceux de tous les destinataires, retirés sans appel à Room-Service |
 | `modifie`, `invitation` | aucun |
 
-Si Room-Service refuse la lecture, répond 404 ou est indisponible, le socket quitte `room:<roomId>` et reçoit `room-message.revoked` `{ roomId }`. Le client oublie alors cette room et la rejoint de nouveau s'il la retrouve dans ses salons accessibles.
+Si Room-Service refuse la lecture ou répond 404 (salon supprimé), le socket quitte `room:<roomId>` et reçoit `room-message.revoked` `{ roomId }`. Le client oublie alors cette room et la rejoint de nouveau s'il la retrouve dans ses salons accessibles.
+
+Si Room-Service **ne répond pas** (panne, délai dépassé, réponse invalide), le socket **reste** dans le salon et un seul avertissement est journalisé pour l'événement (`Room-Service indisponible : N accès … gardé(s) sans revérification`). Le retirer le priverait du temps réel pendant toute la panne, puisque rejoindre un salon demande aussi Room-Service. Compromis : un membre expulsé pendant la panne reçoit encore les messages jusqu'au changement suivant du serveur — le même que pour Authentification (sockets gardés si elle est indisponible). Les droits sont de toute façon revérifiés à chaque envoi, modification et lecture d'historique.
 
 ## Envoi via WebSocket
 

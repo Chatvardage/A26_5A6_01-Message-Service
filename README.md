@@ -316,6 +316,8 @@ ROOM_SERVICE_URL=http://room-service:3003
 `A26_5A6_01-Infra` (docker-compose.yml) injecte `ROOM_SERVICE_URL` et
 `INTERNAL_SERVICE_TOKEN` dans le conteneur `message-service`.
 
+`ROOM_SERVICE_URL` et `ROOM_SERVICE_TIMEOUT_MS` sont vérifiées **au démarrage** : une URL qui n'est pas une origine HTTP(S) seule (chemin, paramètres) ou un délai qui n'est pas un entier ≥ 1 empêchent le service de démarrer, au lieu d'un 503 générique au premier message de salon. Contrairement à `AUTH_SERVICE_URL`, `ROOM_SERVICE_URL` n'exige **pas** HTTPS en production : l'appel reste sur le réseau interne des services et n'est jamais relayé par Serveur-API.
+
 `CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`). Les connexions WebSocket sans en-tête `Origin` restent acceptées volontairement afin de supporter les clients non-navigateurs (par exemple Electron/Socket.IO).
 
 ### En production (`NODE_ENV=production`)

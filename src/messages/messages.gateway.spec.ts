@@ -1,5 +1,6 @@
 import {
   ForbiddenException,
+  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -319,16 +320,24 @@ describe('MessagesGateway', () => {
       expect(sansJeton.disconnect).toHaveBeenCalledWith(true);
     });
 
-    it('garde les sockets si Auth est indisponible, ignore ceux pas encore authentifiés', async () => {
+    it('garde les sockets si Auth est indisponible (un seul avertissement), ignore ceux pas encore authentifiés', async () => {
+      const avertir = jest
+        .spyOn((gateway as any).logger, 'warn')
+        .mockImplementation(() => undefined);
       const ouvert = socket('u1');
+      const autre = socket('u2');
       const enCours = socket(undefined);
-      brancher([ouvert, enCours]);
+      brancher([ouvert, autre, enCours]);
       jwt.verifyToken.mockRejectedValue(new ServiceUnavailableException());
 
       await gateway.revaliderSockets();
 
       expect(ouvert.disconnect).not.toHaveBeenCalled();
-      expect(jwt.verifyToken).toHaveBeenCalledTimes(1);
+      expect(jwt.verifyToken).toHaveBeenCalledTimes(2);
+      expect(avertir).toHaveBeenCalledTimes(1);
+      expect(avertir).toHaveBeenCalledWith(
+        'Authentification indisponible : 2 socket(s) gardé(s) sans revérification',
+      );
     });
 
     it('revalide à intervalle régulier après afterInit, arrêté à la destruction', async () => {
@@ -1232,10 +1241,12 @@ describe('MessagesGateway', () => {
     expect(socket.data.salons).toEqual({ r1: 's1' });
   });
 
-  it('removes the socket when the access check fails (deleted room, Room-Service down)', async () => {
+  it('removes the socket from a room that no longer exists (404)', async () => {
     const socket = socketDansSalons({ r1: 's1' });
     socketsParUtilisateur.u1 = [socket];
-    rooms.verifierAcces.mockRejectedValue(new Error('indisponible'));
+    rooms.verifierAcces.mockRejectedValue(
+      new NotFoundException('Salon introuvable'),
+    );
     const publier = await brancherRedis();
 
     publier('serveur.change', {
@@ -1248,6 +1259,37 @@ describe('MessagesGateway', () => {
 
     expect(socket.leave).toHaveBeenCalledWith('room:r1');
     expect(socket.data.salons).toEqual({});
+  });
+
+  it('keeps the socket and warns once when Room-Service is down', async () => {
+    const avertir = jest
+      .spyOn((gateway as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+    const socket = socketDansSalons({ r1: 's1', r2: 's1' });
+    socketsParUtilisateur.u1 = [socket];
+    rooms.verifierAcces.mockRejectedValue(
+      new ServiceUnavailableException('Service des salons indisponible'),
+    );
+    const publier = await brancherRedis();
+
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'salons',
+      cibleId: null,
+      utilisateurIds: ['u1'],
+    });
+    await vider();
+
+    expect(socket.leave).not.toHaveBeenCalled();
+    expect(socket.emit).not.toHaveBeenCalledWith(
+      'room-message.revoked',
+      expect.anything(),
+    );
+    expect(socket.data.salons).toEqual({ r1: 's1', r2: 's1' });
+    expect(avertir).toHaveBeenCalledTimes(1);
+    expect(avertir).toHaveBeenCalledWith(
+      expect.stringContaining('Room-Service indisponible : 2 accès'),
+    );
   });
 
   it("removes every socket from a deleted server's rooms without asking Room-Service", async () => {

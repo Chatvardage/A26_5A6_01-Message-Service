@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Logger,
+  NotFoundException,
   OnModuleDestroy,
   UnauthorizedException,
   UseFilters,
@@ -302,6 +303,9 @@ export class MessagesGateway
         EvenementsVersClient,
         SocketData
       >[];
+    // Sockets gardés faute de réponse d'Authentification : un seul
+    // avertissement par passe, pour qu'une panne ne passe pas inaperçue.
+    let gardesSansVerification = 0;
     for (const socket of sockets) {
       // Encore en cours d'authentification (voir handleConnection).
       if (!socket.data.userId) continue;
@@ -309,11 +313,19 @@ export class MessagesGateway
         const user = await this.jwt.verifyToken(this.readSocketToken(socket));
         socket.data.role = user.role;
       } catch (erreur) {
-        if (!estJetonRefuse(erreur)) continue;
+        if (!estJetonRefuse(erreur)) {
+          gardesSansVerification += 1;
+          continue;
+        }
         this.logger.warn(`Jeton refusé, socket déconnecté [${socket.id}]`);
         socket.emit('session.revoquee');
         socket.disconnect(true);
       }
+    }
+    if (gardesSansVerification > 0) {
+      this.logger.warn(
+        `Authentification indisponible : ${gardesSansVerification} socket(s) gardé(s) sans revérification`,
+      );
     }
   }
 
@@ -370,11 +382,6 @@ export class MessagesGateway
     }
   }
 
-  /**
-   * Présence choisie par l'utilisateur, déjà enregistrée par le client dans
-   * User-Config-Service : relayée tout de suite aux autres clients. Un
-   * utilisateur ne peut annoncer que SA présence (identité du socket).
-   */
   /**
    * Profil public modifié par l'utilisateur (alias, avatar, pseudo), déjà
    * enregistré par le client : les autres rechargent ce profil. Aucune
@@ -457,6 +464,11 @@ export class MessagesGateway
     return { enLigne };
   }
 
+  /**
+   * Présence choisie par l'utilisateur, déjà enregistrée par le client dans
+   * User-Config-Service : relayée tout de suite aux autres clients. Un
+   * utilisateur ne peut annoncer que SA présence (identité du socket).
+   */
   @SubscribeMessage('presence.update')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async updatePresence(
@@ -784,39 +796,55 @@ export class MessagesGateway
             ),
           )
         ).flat();
+    // Accès gardés faute de réponse de Room-Service (voir peutEncoreLire).
+    let gardesSansVerification = 0;
     for (const socket of sockets) {
       const userId = socket.data.userId;
       if (!userId) continue;
       const salons = socket.data.salons ?? {};
       for (const [salonId, serveurId] of Object.entries(salons)) {
         if (serveurId !== event.serveurId) continue;
-        if (
-          event.raison !== 'supprime' &&
-          (await this.peutEncoreLire(salonId, {
-            id: userId,
-            role: socket.data.role ?? 'utilisateur',
-          }))
-        ) {
+        const peutLire =
+          event.raison === 'supprime'
+            ? false
+            : await this.peutEncoreLire(salonId, {
+                id: userId,
+                role: socket.data.role ?? 'utilisateur',
+              });
+        if (peutLire === null) {
+          gardesSansVerification += 1;
           continue;
         }
+        if (peutLire) continue;
         socket.leave(`room:${salonId}`);
         delete salons[salonId];
         socket.emit('room-message.revoked', { roomId: salonId });
       }
     }
+    if (gardesSansVerification > 0) {
+      this.logger.warn(
+        `Room-Service indisponible : ${gardesSansVerification} accès au serveur ${event.serveurId} gardé(s) sans revérification`,
+      );
+    }
   }
 
-  /** Accès toujours valide ? En cas de doute (salon supprimé, Room-Service
-   * indisponible), non : le client pourra rejoindre de nouveau. */
+  /**
+   * Accès toujours valide ? `false` si Room-Service le refuse ou si le salon
+   * n'existe plus ; `null` si Room-Service ne répond pas. Dans ce cas le
+   * socket reste dans le salon (même compromis que pour Authentification
+   * dans revaliderSockets) : le retirer le priverait du temps réel pendant
+   * toute la panne, puisque rejoindre un salon demande aussi Room-Service.
+   * L'accès est revérifié au prochain changement du serveur.
+   */
   private async peutEncoreLire(
     salonId: string,
     acteur: Acteur,
-  ): Promise<boolean> {
+  ): Promise<boolean | null> {
     try {
       const acces = await this.rooms.verifierAcces(salonId, acteur);
       return acces.peutLire;
-    } catch {
-      return false;
+    } catch (erreur) {
+      return erreur instanceof NotFoundException ? false : null;
     }
   }
 
