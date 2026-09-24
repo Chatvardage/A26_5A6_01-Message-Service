@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PrivateMessage } from "@prisma/client";
+import { LimiteEnvoiService } from "../limite-envoi.service";
 import { PrismaService } from "../prisma.service";
 import { RedisService } from "../redis.service";
 import { ConversationSummary } from "./dto/conversation-summary.dto";
@@ -17,12 +18,14 @@ export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly limiteEnvoi: LimiteEnvoiService,
   ) {}
 
   async create(
     senderId: string,
     dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
+    this.limiteEnvoi.verifier(senderId);
     if (dto.recipientId === senderId) {
       throw new BadRequestException(
         "Impossible de s’envoyer un message privé à soi-même",

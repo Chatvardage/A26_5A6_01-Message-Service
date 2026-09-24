@@ -130,6 +130,10 @@ Création :
 
 `content` est obligatoire et limité à 4000 caractères, en REST comme en WebSocket. Contrairement aux DM, la lecture (`GET`) n'est pas limitée à l'auteur : tout membre du salon peut consulter tous les messages du salon. Seul l'auteur peut modifier ou supprimer son propre message.
 
+### Limite d'envoi
+
+Un utilisateur peut envoyer au plus **10 messages par fenêtre glissante de 10 secondes**, messages privés et de salon confondus (`LimiteEnvoiService`), en REST comme en WebSocket. Au-delà, l'envoi est refusé avec une **429**, avant tout appel à Room-Service. Le compteur est en mémoire : il ne vaut que pour une seule instance du service (voir la note sur la présence plus bas). La modification et la suppression ne sont pas limitées.
+
 ## Temps réel
 
 Namespace Socket.IO : `/messages`.
@@ -275,7 +279,7 @@ Le service **refuse de démarrer** si `INTERNAL_SERVICE_TOKEN` fait moins de 32 
 
 Le build génère Prisma et compile NestJS. L'image finale réutilise les dépendances déjà installées dans le stage de build : aucun téléchargement de Prisma n'est effectué au démarrage.
 
-Le conteneur exécute `prisma migrate deploy`, puis `node dist/main`.
+Le conteneur tourne sous l'utilisateur non root `node` de l'image, et exécute `prisma migrate deploy`, puis `node dist/main`.
 
 L'orchestration complète appartient au dépôt `A26_5A6_01-Infra`.
 

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { RoomMessage } from "@prisma/client";
+import { LimiteEnvoiService } from "../limite-envoi.service";
 import { PrismaService } from "../prisma.service";
 import { RedisService } from "../redis.service";
 import { Acteur, RoomsClientService } from "../rooms/rooms-client.service";
@@ -18,6 +19,7 @@ export class RoomMessagesService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly rooms: RoomsClientService,
+    private readonly limiteEnvoi: LimiteEnvoiService,
   ) {}
 
   async create(
@@ -25,6 +27,9 @@ export class RoomMessagesService {
     roomId: string,
     dto: CreateRoomMessageDto,
   ): Promise<RoomMessage> {
+    // Avant l'appel à Room-Service : un envoi en rafale ne doit pas non plus
+    // le solliciter à chaque tentative.
+    this.limiteEnvoi.verifier(acteur.id);
     const acces = await this.rooms.verifierAcces(roomId, acteur);
     this.exigerLecture(acces.peutLire, "y envoyer un message");
     // Salon lisible mais en écriture réservée (ex. #annonces).

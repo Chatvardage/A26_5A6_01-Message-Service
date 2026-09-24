@@ -1,4 +1,6 @@
 import {
+  HttpException,
+  HttpStatus,
   BadRequestException,
   ForbiddenException,
   NotFoundException,
@@ -33,6 +35,7 @@ describe("RoomMessagesService", () => {
   let prisma: any;
   let redis: any;
   let rooms: any;
+  let limiteEnvoi: any;
   let service: RoomMessagesService;
 
   beforeEach(() => {
@@ -48,7 +51,8 @@ describe("RoomMessagesService", () => {
     };
     redis = { publish: jest.fn() };
     rooms = { verifierAcces: jest.fn().mockResolvedValue(lecteurEcrivain) };
-    service = new RoomMessagesService(prisma, redis, rooms);
+    limiteEnvoi = { verifier: jest.fn() };
+    service = new RoomMessagesService(prisma, redis, rooms, limiteEnvoi);
   });
 
   it("creates then publishes", async () => {
@@ -63,6 +67,19 @@ describe("RoomMessagesService", () => {
       data: { roomId: "r1", authorId: "u1", content: "hi" },
     });
     expect(redis.publish).toHaveBeenCalledWith("room-message.created", msg);
+    expect(limiteEnvoi.verifier).toHaveBeenCalledWith("u1");
+  });
+
+  it("rejects create over the send limit without calling Room-Service", async () => {
+    limiteEnvoi.verifier.mockImplementation(() => {
+      throw new HttpException("trop", HttpStatus.TOO_MANY_REQUESTS);
+    });
+
+    await expect(
+      service.create(acteur("u1"), "r1", { content: "hi" }),
+    ).rejects.toBeInstanceOf(HttpException);
+    expect(rooms.verifierAcces).not.toHaveBeenCalled();
+    expect(prisma.roomMessage.create).not.toHaveBeenCalled();
   });
 
   it("rejects create when the caller is not a room member", async () => {

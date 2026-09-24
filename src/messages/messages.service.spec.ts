@@ -1,4 +1,6 @@
 import {
+  HttpException,
+  HttpStatus,
   BadRequestException,
   ForbiddenException,
   NotFoundException,
@@ -16,6 +18,7 @@ describe("MessagesService", () => {
   };
   let prisma: any;
   let redis: any;
+  let limiteEnvoi: any;
   let service: MessagesService;
   beforeEach(() => {
     prisma = {
@@ -30,7 +33,8 @@ describe("MessagesService", () => {
       },
     };
     redis = { publish: jest.fn() };
-    service = new MessagesService(prisma, redis);
+    limiteEnvoi = { verifier: jest.fn() };
+    service = new MessagesService(prisma, redis, limiteEnvoi);
   });
   it("creates then publishes", async () => {
     prisma.privateMessage.create.mockResolvedValue(msg);
@@ -39,6 +43,16 @@ describe("MessagesService", () => {
       service.create("u1", { recipientId: "u2", content: "hi" }),
     ).resolves.toBe(msg);
     expect(redis.publish).toHaveBeenCalledWith("private-message.created", msg);
+    expect(limiteEnvoi.verifier).toHaveBeenCalledWith("u1");
+  });
+  it("rejects a private message over the send limit", async () => {
+    limiteEnvoi.verifier.mockImplementation(() => {
+      throw new HttpException("trop", HttpStatus.TOO_MANY_REQUESTS);
+    });
+    await expect(
+      service.create("u1", { recipientId: "u2", content: "hi" }),
+    ).rejects.toBeInstanceOf(HttpException);
+    expect(prisma.privateMessage.create).not.toHaveBeenCalled();
   });
   it("rejects a private message sent to self", async () => {
     await expect(
