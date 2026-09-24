@@ -127,6 +127,12 @@ export const DELAI_MIN_PROFIL_MS = 5000;
 // toujours relayé ; le même état répété vers la même cible, au plus une fois
 // par fenêtre (les destinataires gardent l'état jusqu'au changement).
 export const DELAI_MIN_SAISIE_MS = 1000;
+// 'presence.update' : chaque envoi est publié sur Redis puis relayé à tous
+// ceux qui suivent l'utilisateur. Au plus un envoi par socket sur cette
+// fenêtre ; une demande trop rapprochée n'est pas perdue : l'état le plus
+// récent du socket part à la fin de la fenêtre (même principe que
+// `profil.update`).
+export const DELAI_MIN_PRESENCE_MS = 1000;
 // 'presence.suivre' : le client le renvoie quand les personnes affichées
 // changent (regroupé côté client) ; au plus une fois par fenêtre.
 export const DELAI_MIN_SUIVI_PRESENCE_MS = 1000;
@@ -217,8 +223,16 @@ export class MessagesGateway
 {
   private readonly logger = new Logger(MessagesGateway.name);
   private minuteurRevalidation?: ReturnType<typeof setInterval>;
+  // Une passe de revalidation peut durer plus que l'intervalle (beaucoup de
+  // sockets, Auth lente) : les passes ne se chevauchent pas.
+  private revalidationEnCours = false;
   // Limite de `profil.update` par socket (voir DELAI_MIN_PROFIL_MS).
   private readonly limitesProfil = new Map<
+    string,
+    { dernierEnvoi: number; envoiDiffere?: ReturnType<typeof setTimeout> }
+  >();
+  // Limite de `presence.update` par socket (voir DELAI_MIN_PRESENCE_MS).
+  private readonly limitesPresence = new Map<
     string,
     { dernierEnvoi: number; envoiDiffere?: ReturnType<typeof setTimeout> }
   >();
@@ -264,6 +278,16 @@ export class MessagesGateway
    * tout le monde). Sinon, le rôle global est mis à jour (droits des salons).
    */
   async revaliderSockets(): Promise<void> {
+    if (this.revalidationEnCours) return;
+    this.revalidationEnCours = true;
+    try {
+      await this.revaliderTousLesSockets();
+    } finally {
+      this.revalidationEnCours = false;
+    }
+  }
+
+  private async revaliderTousLesSockets(): Promise<void> {
     const sockets =
       (await this.server.fetchSockets()) as unknown as RemoteSocket<
         EvenementsVersClient,
@@ -316,6 +340,10 @@ export class MessagesGateway
     // Un envoi de profil différé part quand même : le changement a bien eu
     // lieu, seul le socket est parti.
     this.limitesProfil.delete(client.id);
+    // Une présence différée, elle, ne doit pas partir après le « hors ligne »
+    // de la déconnexion (ci-dessous).
+    clearTimeout(this.limitesPresence.get(client.id)?.envoiDiffere);
+    this.limitesPresence.delete(client.id);
     const userId = client.data?.userId;
     if (!userId) return;
 
@@ -428,10 +456,31 @@ export class MessagesGateway
   ): Promise<{ ok: true }> {
     const userId = this.requireUserId(client);
     client.data.presence = dto.statut;
-    await this.redis.publish(PRESENCE_CHANNEL, {
-      userId,
-      statut: dto.statut,
-    });
+    const maintenant = Date.now();
+    const limite = this.limitesPresence.get(client.id);
+    if (!limite || maintenant - limite.dernierEnvoi >= DELAI_MIN_PRESENCE_MS) {
+      this.limitesPresence.set(client.id, { dernierEnvoi: maintenant });
+      await this.redis.publish(PRESENCE_CHANNEL, {
+        userId,
+        statut: dto.statut,
+      });
+      return { ok: true };
+    }
+    // Trop tôt : un seul envoi différé, avec l'état du socket à ce moment-là.
+    limite.envoiDiffere ??= setTimeout(
+      () => {
+        limite.envoiDiffere = undefined;
+        limite.dernierEnvoi = Date.now();
+        const statut = client.data.presence;
+        if (!statut) return;
+        this.redis
+          .publish(PRESENCE_CHANNEL, { userId, statut })
+          .catch((erreur) => {
+            this.logger.warn(`Présence non diffusée: ${String(erreur)}`);
+          });
+      },
+      DELAI_MIN_PRESENCE_MS - (maintenant - limite.dernierEnvoi),
+    );
     return { ok: true };
   }
 

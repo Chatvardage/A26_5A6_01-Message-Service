@@ -201,11 +201,15 @@ La présence choisie est enregistrée par le client dans User-Config-Service
   ~70 s (revalidation + cache `AUTH_CACHE_TTL_MS`). Le client vérifie alors
   sa session au lieu de se reconnecter en boucle. Si Auth-Service est
   indisponible, les sockets sont gardés. La revalidation met aussi à jour le
-  rôle global du socket ;
+  rôle global du socket ; une passe plus longue que l'intervalle n'est pas
+  doublée par la suivante ;
 - client → serveur : `presence.update` `{ statut: 'en-ligne' | 'hors-ligne' }`,
   émis juste après l'enregistrement et à chaque `connexion.prete`.
   L'utilisateur est celui du socket : on ne peut annoncer que sa propre
-  présence ;
+  présence. **Au plus un envoi par socket et par seconde**
+  (`DELAI_MIN_PRESENCE_MS`) : une demande plus rapprochée n'est pas perdue,
+  l'état le plus récent du socket part à la fin de la fenêtre (jamais après
+  sa déconnexion) ;
 - quand le **dernier** socket d'un utilisateur se ferme (app quittée,
   plantage, réseau coupé), `hors-ligne` est diffusé aussitôt ;
 - client → serveur : `presence.suivre` `{ ids: string[] }` (500 au plus,

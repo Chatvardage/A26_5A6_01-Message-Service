@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  DELAI_MIN_PRESENCE_MS,
   DELAI_MIN_PROFIL_MS,
   DELAI_MIN_SAISIE_MS,
   isAllowedOrigin,
@@ -350,6 +351,94 @@ describe('MessagesGateway', () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it('ne lance pas une seconde passe tant que la première dure', async () => {
+      brancher([socket('u1')]);
+      let terminer!: () => void;
+      jwt.verifyToken.mockReturnValue(
+        new Promise((resolve) => {
+          terminer = () => resolve({ id: 'u1', role: 'utilisateur' });
+        }),
+      );
+
+      const premiere = gateway.revaliderSockets();
+      await gateway.revaliderSockets();
+      await Promise.resolve();
+      terminer();
+      await premiere;
+      expect((gateway as any).server.fetchSockets).toHaveBeenCalledTimes(1);
+
+      // La passe suivante, une fois la première finie, a bien lieu.
+      await gateway.revaliderSockets();
+      expect((gateway as any).server.fetchSockets).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('limite de presence.update par socket', () => {
+    const socket = (id = 's1') => ({ id, data: { userId: 'u1' } }) as any;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      redis.publish = jest.fn().mockResolvedValue(1);
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it("regroupe les changements rapprochés et envoie l'état le plus récent", async () => {
+      const client = socket();
+      await gateway.updatePresence(client, { statut: 'en-ligne' });
+      await gateway.updatePresence(client, { statut: 'hors-ligne' });
+      await gateway.updatePresence(client, { statut: 'en-ligne' });
+      await gateway.updatePresence(client, { statut: 'hors-ligne' });
+      expect(redis.publish).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(DELAI_MIN_PRESENCE_MS);
+      expect(redis.publish).toHaveBeenCalledTimes(2);
+      expect(redis.publish).toHaveBeenLastCalledWith('presence.changed', {
+        userId: 'u1',
+        statut: 'hors-ligne',
+      });
+    });
+
+    it('envoie tout de suite une fois la fenêtre écoulée', async () => {
+      const client = socket();
+      await gateway.updatePresence(client, { statut: 'en-ligne' });
+      jest.advanceTimersByTime(DELAI_MIN_PRESENCE_MS);
+      await gateway.updatePresence(client, { statut: 'hors-ligne' });
+      expect(redis.publish).toHaveBeenCalledTimes(2);
+    });
+
+    it("n'envoie pas une présence différée après la déconnexion du socket", async () => {
+      (gateway as any).server.in = jest.fn(() => ({
+        fetchSockets: jest.fn().mockResolvedValue([]),
+      }));
+      const client = socket();
+      await gateway.updatePresence(client, { statut: 'hors-ligne' });
+      await gateway.updatePresence(client, { statut: 'en-ligne' });
+      await gateway.handleDisconnect(client);
+      jest.advanceTimersByTime(DELAI_MIN_PRESENCE_MS);
+
+      expect(redis.publish.mock.calls).toEqual([
+        ['presence.changed', { userId: 'u1', statut: 'hors-ligne' }],
+        ['presence.changed', { userId: 'u1', statut: 'hors-ligne' }],
+      ]);
+    });
+
+    it('journalise un envoi différé en échec', async () => {
+      const logger = jest
+        .spyOn((gateway as any).logger, 'warn')
+        .mockImplementation(() => undefined);
+      const client = socket();
+      await gateway.updatePresence(client, { statut: 'en-ligne' });
+      redis.publish = jest.fn().mockRejectedValue(new Error('redis'));
+      await gateway.updatePresence(client, { statut: 'hors-ligne' });
+      jest.advanceTimersByTime(DELAI_MIN_PRESENCE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(logger).toHaveBeenCalledWith(
+        expect.stringContaining('Présence non diffusée'),
+      );
     });
   });
 
