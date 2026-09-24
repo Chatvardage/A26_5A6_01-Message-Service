@@ -1,6 +1,6 @@
-import { CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
-import { Request } from "express";
-import { AuthenticatedUser, JwtAuthService } from "./jwt-auth.service";
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { Request } from 'express';
+import { AuthenticatedUser, JwtAuthService } from './jwt-auth.service';
 
 export type AuthenticatedRequest = Request & { auth: AuthenticatedUser };
 

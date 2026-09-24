@@ -1,0 +1,33 @@
+name: CI
+
+# Lint, compilation et tests unitaires à chaque PR et sur les branches
+# principales : une régression ne doit pas pouvoir être fusionnée sans
+# qu'aucun test n'ait tourné. Les tests e2e (base de données réelle) ne
+# sont pas lancés ici.
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run test:cov
