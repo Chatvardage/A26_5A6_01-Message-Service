@@ -3,6 +3,7 @@ import {
   Logger,
   OnModuleDestroy,
   UnauthorizedException,
+  UseFilters,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
@@ -31,6 +32,7 @@ import { RoomIdDto } from '../room-messages/dto/room-id.dto';
 import { SendRoomMessageDto } from '../room-messages/dto/send-room-message.dto';
 import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
 import { CreateMessageDto } from './dto/create-message.dto';
+import { ExceptionsWsFilter } from './exceptions-ws.filter';
 import { PresenceDto, SuivrePresenceDto } from './dto/presence.dto';
 import { TypingDto } from './dto/typing.dto';
 import { MessagesService } from './messages.service';
@@ -206,6 +208,8 @@ function estJetonRefuse(erreur: unknown): boolean {
   );
 }
 
+// Erreurs HTTP (429, 404, 403, 400…) transmises au client avec leur code.
+@UseFilters(new ExceptionsWsFilter())
 @WebSocketGateway({
   namespace: '/messages',
   cors: {

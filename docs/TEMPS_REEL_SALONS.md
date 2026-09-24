@@ -49,7 +49,6 @@ Pour recevoir les événements temps réel d'un salon, le client doit explicitem
 
 Contrairement à la room `user:<id>` (rejointe automatiquement à la connexion), les rooms `room:<roomId>` sont rejointes à la demande : un socket connecté qui n'a jamais émis `room-message.join` pour un salon donné ne recevra pas ses événements temps réel, même s'il est membre du salon côté Room-Service.
 
-
 ### Perte d'accès : retrait automatique des rooms
 
 Les droits ne sont vérifiés qu'au `room-message.join`. Pour qu'un socket ne continue pas de recevoir les messages d'un salon dont il a perdu l'accès, chaque événement `serveur.change` venu de Room-Service déclenche une revérification (`revoquerAccesPerdus`), limitée aux salons **de ce serveur** déjà rejoints (mémorisés dans `socket.data.salons`) :
@@ -97,6 +96,10 @@ Chaque événement client coûteux a une limite par socket ; la réponse à un d
 | `presence.update`, `profil.update` | 1 / s, 1 / 5 s | **différé** : le dernier état part à la fin de la fenêtre (jamais après la déconnexion pour la présence) — perdre la dernière valeur laisserait les autres clients sur un état faux |
 | `presence.suivre` | 1 / s | **refusé** (`WsException`) : c'est une requête avec accusé de réception ; le client regroupe déjà ses demandes et renvoie la liste complète à la suivante, rien n'est perdu |
 | envoi de message (REST ou Socket.IO) | 10 / 10 s par utilisateur | 429 |
+
+## Erreurs sur Socket.IO
+
+Une erreur d'un événement client (limite d'envoi 429, destinataire introuvable 404, salon en lecture seule 403, corps invalide 400…) est renvoyée au socket par l'événement `exception` `{ status: 'error', statusCode, message }`, avec le même code et le même message qu'en REST (`ExceptionsWsFilter`). Sans ce filtre, NestJS ne reconnaissait que `WsException` et envoyait « Internal server error ». Les refus propres au socket (non authentifié, trop de demandes de présence) gardent la forme `{ status: 'error', message }`.
 
 ## Indicateur de frappe (typing)
 
