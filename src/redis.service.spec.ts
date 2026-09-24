@@ -1,6 +1,6 @@
-import Redis from "ioredis";
+import Redis from 'ioredis';
 
-import { RedisService } from "./redis.service";
+import { RedisService } from './redis.service';
 
 const connect = jest.fn(),
   ping = jest.fn(),
@@ -12,11 +12,11 @@ const connect = jest.fn(),
 
 let instances: any[] = [];
 
-jest.mock("ioredis", () => ({
+jest.mock('ioredis', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => {
     const x = {
-      status: "wait",
+      status: 'wait',
       connect,
       ping,
       publish,
@@ -32,7 +32,7 @@ jest.mock("ioredis", () => ({
   }),
 }));
 
-describe("RedisService", () => {
+describe('RedisService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -41,53 +41,53 @@ describe("RedisService", () => {
     delete process.env.REDIS_URL;
 
     connect.mockResolvedValue(undefined);
-    ping.mockResolvedValue("PONG");
+    ping.mockResolvedValue('PONG');
     publish.mockResolvedValue(1);
     subscribe.mockResolvedValue(1);
   });
 
-  it("ping connects waiting publisher", async () => {
+  it('ping connects waiting publisher', async () => {
     const s = new RedisService();
 
-    await expect(s.ping()).resolves.toBe("PONG");
+    await expect(s.ping()).resolves.toBe('PONG');
 
     expect(connect).toHaveBeenCalled();
   });
 
-  it("publish serializes payload and skips connect when ready", async () => {
+  it('publish serializes payload and skips connect when ready', async () => {
     const s = new RedisService();
 
-    (s.publisher as any).status = "ready";
+    (s.publisher as any).status = 'ready';
 
-    await expect(s.publish("c", { a: 1 })).resolves.toBe(1);
+    await expect(s.publish('c', { a: 1 })).resolves.toBe(1);
 
-    expect(publish).toHaveBeenCalledWith("c", '{"a":1}');
+    expect(publish).toHaveBeenCalledWith('c', '{"a":1}');
   });
 
-  it("subscribe connects and registers handler", async () => {
+  it('subscribe connects and registers handler', async () => {
     const s = new RedisService();
 
     const h = jest.fn();
 
-    await s.subscribe(["a", "b"], h);
+    await s.subscribe(['a', 'b'], h);
 
-    expect(subscribe).toHaveBeenCalledWith("a", "b");
-    expect(on).toHaveBeenCalledWith("message", h);
+    expect(subscribe).toHaveBeenCalledWith('a', 'b');
+    expect(on).toHaveBeenCalledWith('message', h);
   });
 
-  it("replaces the previous message handler on repeated subscribe", async () => {
+  it('replaces the previous message handler on repeated subscribe', async () => {
     const s = new RedisService();
     const first = jest.fn();
     const second = jest.fn();
 
-    await s.subscribe(["a"], first);
-    await s.subscribe(["a"], second);
+    await s.subscribe(['a'], first);
+    await s.subscribe(['a'], second);
 
-    expect(removeListener).toHaveBeenCalledWith("message", first);
-    expect(on).toHaveBeenLastCalledWith("message", second);
+    expect(removeListener).toHaveBeenCalledWith('message', first);
+    expect(on).toHaveBeenLastCalledWith('message', second);
   });
 
-  it("disconnects non-ended clients", () => {
+  it('disconnects non-ended clients', () => {
     const s = new RedisService();
 
     s.onModuleDestroy();
@@ -95,18 +95,18 @@ describe("RedisService", () => {
     expect(disconnect).toHaveBeenCalledTimes(2);
   });
 
-  it("does not disconnect ended clients", () => {
+  it('does not disconnect ended clients', () => {
     const s = new RedisService();
 
-    (s.publisher as any).status = "end";
-    (s.subscriber as any).status = "end";
+    (s.publisher as any).status = 'end';
+    (s.subscriber as any).status = 'end';
 
     s.onModuleDestroy();
 
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it("reuses the same connection promise while Redis is connecting", async () => {
+  it('reuses the same connection promise while Redis is connecting', async () => {
     let resolveConnect!: () => void;
     connect.mockImplementationOnce(
       () =>
@@ -123,15 +123,15 @@ describe("RedisService", () => {
 
     resolveConnect();
 
-    await expect(first).resolves.toBe("PONG");
-    await expect(second).resolves.toBe("PONG");
+    await expect(first).resolves.toBe('PONG');
+    await expect(second).resolves.toBe('PONG');
   });
 
-  it("uses configured URL", () => {
-    process.env.REDIS_URL = "redis://x";
+  it('uses configured URL', () => {
+    process.env.REDIS_URL = 'redis://x';
 
     new RedisService();
 
-    expect(Redis).toHaveBeenCalledWith("redis://x", expect.any(Object));
+    expect(Redis).toHaveBeenCalledWith('redis://x', expect.any(Object));
   });
 });

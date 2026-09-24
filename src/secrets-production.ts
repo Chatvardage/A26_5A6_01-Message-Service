@@ -12,11 +12,11 @@
 export const LONGUEUR_MIN_JETON_INTERNE = 32;
 
 const MOTS_DE_PASSE_BDD_DE_DEVELOPPEMENT = [
-  "message_service_dev",
-  "postgres",
-  "chatvardage",
+  'message_service_dev',
+  'postgres',
+  'chatvardage',
 ];
-const MOTS_DE_PASSE_REDIS_DE_DEVELOPPEMENT = ["chatvardage_redis_dev"];
+const MOTS_DE_PASSE_REDIS_DE_DEVELOPPEMENT = ['chatvardage_redis_dev'];
 
 /** Mot de passe d'une URL de connexion, ou null (absent, URL invalide). */
 export function motDePasseUrl(url: string | undefined): string | null {
@@ -30,10 +30,10 @@ export function motDePasseUrl(url: string | undefined): string | null {
 }
 
 export function problemesSecretsProduction(env: NodeJS.ProcessEnv): string[] {
-  if (env.NODE_ENV?.trim() !== "production") return [];
+  if (env.NODE_ENV?.trim() !== 'production') return [];
   const problemes: string[] = [];
 
-  const jeton = env.INTERNAL_SERVICE_TOKEN?.trim() ?? "";
+  const jeton = env.INTERNAL_SERVICE_TOKEN?.trim() ?? '';
   if (jeton.length < LONGUEUR_MIN_JETON_INTERNE) {
     problemes.push(
       `INTERNAL_SERVICE_TOKEN doit contenir au moins ${LONGUEUR_MIN_JETON_INTERNE} caractères`,
@@ -46,7 +46,7 @@ export function problemesSecretsProduction(env: NodeJS.ProcessEnv): string[] {
     MOTS_DE_PASSE_BDD_DE_DEVELOPPEMENT.includes(motDePasseBdd)
   ) {
     problemes.push(
-      "le mot de passe de DATABASE_URL est une valeur de développement",
+      'le mot de passe de DATABASE_URL est une valeur de développement',
     );
   }
 
@@ -56,7 +56,7 @@ export function problemesSecretsProduction(env: NodeJS.ProcessEnv): string[] {
     MOTS_DE_PASSE_REDIS_DE_DEVELOPPEMENT.includes(motDePasseRedis)
   ) {
     problemes.push(
-      "le mot de passe de REDIS_URL est une valeur de développement",
+      'le mot de passe de REDIS_URL est une valeur de développement',
     );
   }
   return problemes;
@@ -68,7 +68,7 @@ export function verifierSecretsProduction(
   const problemes = problemesSecretsProduction(env);
   if (problemes.length > 0) {
     throw new Error(
-      `Secrets de développement refusés en production (NODE_ENV=production) : ${problemes.join(" ; ")}`,
+      `Secrets de développement refusés en production (NODE_ENV=production) : ${problemes.join(' ; ')}`,
     );
   }
 }

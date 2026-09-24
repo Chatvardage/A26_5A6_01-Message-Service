@@ -2,49 +2,49 @@ import {
   ExecutionContext,
   ServiceUnavailableException,
   UnauthorizedException,
-} from "@nestjs/common";
-import { plainToInstance } from "class-transformer";
-import { validate } from "class-validator";
-import { EvenementServeurDto } from "./evenement-serveur.dto";
-import { InternalEventsController } from "./internal-events.controller";
-import { InternalTokenGuard } from "./internal-token.guard";
+} from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { EvenementServeurDto } from './evenement-serveur.dto';
+import { InternalEventsController } from './internal-events.controller';
+import { InternalTokenGuard } from './internal-token.guard';
 
 const contexte = (enTete?: string | string[]) =>
   ({
     switchToHttp: () => ({
       getRequest: () => ({
-        headers: enTete === undefined ? {} : { "x-internal-token": enTete },
+        headers: enTete === undefined ? {} : { 'x-internal-token': enTete },
       }),
     }),
   }) as unknown as ExecutionContext;
 
-describe("routes internes", () => {
+describe('routes internes', () => {
   const ancien = process.env.INTERNAL_SERVICE_TOKEN;
   afterEach(() => {
     process.env.INTERNAL_SERVICE_TOKEN = ancien;
   });
 
-  it("échoue fermé sans INTERNAL_SERVICE_TOKEN", () => {
+  it('échoue fermé sans INTERNAL_SERVICE_TOKEN', () => {
     delete process.env.INTERNAL_SERVICE_TOKEN;
-    expect(() => new InternalTokenGuard().canActivate(contexte("x"))).toThrow(
+    expect(() => new InternalTokenGuard().canActivate(contexte('x'))).toThrow(
       ServiceUnavailableException,
     );
   });
 
-  it.each([undefined, "court", "secret-faux-12345", ["secret-interne-12"]])(
-    "refuse le jeton %p",
+  it.each([undefined, 'court', 'secret-faux-12345', ['secret-interne-12']])(
+    'refuse le jeton %p',
     (enTete) => {
-      process.env.INTERNAL_SERVICE_TOKEN = "secret-interne-12";
+      process.env.INTERNAL_SERVICE_TOKEN = 'secret-interne-12';
       expect(() =>
         new InternalTokenGuard().canActivate(contexte(enTete)),
       ).toThrow(UnauthorizedException);
     },
   );
 
-  it("accepte le bon jeton", () => {
-    process.env.INTERNAL_SERVICE_TOKEN = "secret-interne-12";
+  it('accepte le bon jeton', () => {
+    process.env.INTERNAL_SERVICE_TOKEN = 'secret-interne-12';
     expect(
-      new InternalTokenGuard().canActivate(contexte("secret-interne-12")),
+      new InternalTokenGuard().canActivate(contexte('secret-interne-12')),
     ).toBe(true);
   });
 
@@ -54,35 +54,35 @@ describe("routes internes", () => {
 
     await expect(
       controller.recevoir({
-        serveurId: "s1",
-        raison: "expulse",
-        cibleId: "u3",
-        utilisateurIds: ["u1", "u3", "u1"],
+        serveurId: 's1',
+        raison: 'expulse',
+        cibleId: 'u3',
+        utilisateurIds: ['u1', 'u3', 'u1'],
       }),
     ).resolves.toEqual({ accepte: true });
     await controller.recevoir({
-      serveurId: "s1",
-      raison: "salons",
-      utilisateurIds: ["u1"],
+      serveurId: 's1',
+      raison: 'salons',
+      utilisateurIds: ['u1'],
     });
 
     expect(redis.publish.mock.calls).toEqual([
       [
-        "serveur.change",
+        'serveur.change',
         {
-          serveurId: "s1",
-          raison: "expulse",
-          cibleId: "u3",
-          utilisateurIds: ["u1", "u3"],
+          serveurId: 's1',
+          raison: 'expulse',
+          cibleId: 'u3',
+          utilisateurIds: ['u1', 'u3'],
         },
       ],
       [
-        "serveur.change",
+        'serveur.change',
         {
-          serveurId: "s1",
-          raison: "salons",
+          serveurId: 's1',
+          raison: 'salons',
           cibleId: null,
-          utilisateurIds: ["u1"],
+          utilisateurIds: ['u1'],
         },
       ],
     ]);
@@ -94,10 +94,10 @@ describe("routes internes", () => {
         (e) => e.property,
       );
     expect(
-      await erreurs({ serveurId: "s", raison: "membres", utilisateurIds: [] }),
+      await erreurs({ serveurId: 's', raison: 'membres', utilisateurIds: [] }),
     ).toEqual([]);
     expect(
-      await erreurs({ serveurId: "", raison: "piratage", utilisateurIds: [1] }),
-    ).toEqual(["serveurId", "raison", "utilisateurIds"]);
+      await erreurs({ serveurId: '', raison: 'piratage', utilisateurIds: [1] }),
+    ).toEqual(['serveurId', 'raison', 'utilisateurIds']);
   });
 });

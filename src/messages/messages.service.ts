@@ -3,15 +3,15 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { PrivateMessage } from "@prisma/client";
-import { LimiteEnvoiService } from "../limite-envoi.service";
-import { PrismaService } from "../prisma.service";
-import { RedisService } from "../redis.service";
-import { ConversationSummary } from "./dto/conversation-summary.dto";
-import { CreateMessageDto } from "./dto/create-message.dto";
-import { HistoryQueryDto } from "./dto/history-query.dto";
-import { UpdateMessageDto } from "./dto/update-message.dto";
+} from '@nestjs/common';
+import { PrivateMessage } from '@prisma/client';
+import { LimiteEnvoiService } from '../limite-envoi.service';
+import { PrismaService } from '../prisma.service';
+import { RedisService } from '../redis.service';
+import { ConversationSummary } from './dto/conversation-summary.dto';
+import { CreateMessageDto } from './dto/create-message.dto';
+import { HistoryQueryDto } from './dto/history-query.dto';
+import { UpdateMessageDto } from './dto/update-message.dto';
 
 @Injectable()
 export class MessagesService {
@@ -28,7 +28,7 @@ export class MessagesService {
     this.limiteEnvoi.verifier(senderId);
     if (dto.recipientId === senderId) {
       throw new BadRequestException(
-        "Impossible de s’envoyer un message privé à soi-même",
+        'Impossible de s’envoyer un message privé à soi-même',
       );
     }
 
@@ -38,7 +38,7 @@ export class MessagesService {
     });
 
     // 2) Only after a successful DB write do we publish the event.
-    await this.redis.publish("private-message.created", message);
+    await this.redis.publish('private-message.created', message);
     return message;
   }
 
@@ -61,7 +61,7 @@ export class MessagesService {
 
       if (!cursorMessage) {
         throw new BadRequestException(
-          "Curseur invalide pour cette conversation",
+          'Curseur invalide pour cette conversation',
         );
       }
     }
@@ -75,7 +75,7 @@ export class MessagesService {
       },
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
       take: query.limit,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     // La requête récupère d'abord les messages les plus récents afin que
@@ -92,12 +92,12 @@ export class MessagesService {
     // 1) Date du dernier message échangé avec chaque interlocuteur.
     const [envoyes, recus] = await Promise.all([
       this.prisma.privateMessage.groupBy({
-        by: ["recipientId"],
+        by: ['recipientId'],
         where: { senderId: userId },
         _max: { createdAt: true },
       }),
       this.prisma.privateMessage.groupBy({
-        by: ["senderId"],
+        by: ['senderId'],
         where: { recipientId: userId },
         _max: { createdAt: true },
       }),
@@ -126,7 +126,7 @@ export class MessagesService {
           ],
         })),
       },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     const seen = new Set<string>();
@@ -149,9 +149,9 @@ export class MessagesService {
     const message = await this.prisma.privateMessage.findUnique({
       where: { id },
     });
-    if (!message) throw new NotFoundException("Message introuvable");
+    if (!message) throw new NotFoundException('Message introuvable');
     if (message.senderId !== userId && message.recipientId !== userId) {
-      throw new ForbiddenException("Accès refusé");
+      throw new ForbiddenException('Accès refusé');
     }
     return message;
   }
@@ -164,10 +164,10 @@ export class MessagesService {
     const existing = await this.prisma.privateMessage.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException("Message introuvable");
+    if (!existing) throw new NotFoundException('Message introuvable');
     if (existing.senderId !== senderId) {
       throw new ForbiddenException(
-        "Seul l’expéditeur peut modifier ce message",
+        'Seul l’expéditeur peut modifier ce message',
       );
     }
 
@@ -176,7 +176,7 @@ export class MessagesService {
       data: { content: dto.content },
     });
 
-    await this.redis.publish("private-message.updated", message);
+    await this.redis.publish('private-message.updated', message);
     return message;
   }
 
@@ -184,16 +184,16 @@ export class MessagesService {
     const existing = await this.prisma.privateMessage.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException("Message introuvable");
+    if (!existing) throw new NotFoundException('Message introuvable');
     if (existing.senderId !== senderId) {
       throw new ForbiddenException(
-        "Seul l’expéditeur peut supprimer ce message",
+        'Seul l’expéditeur peut supprimer ce message',
       );
     }
 
     await this.prisma.privateMessage.delete({ where: { id } });
 
-    await this.redis.publish("private-message.deleted", {
+    await this.redis.publish('private-message.deleted', {
       id: existing.id,
       senderId: existing.senderId,
       recipientId: existing.recipientId,

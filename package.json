@@ -13,7 +13,8 @@
     "prebuild": "prisma generate",
     "pretest": "prisma generate",
     "pretest:cov": "prisma generate",
-    "prelint": "prisma generate"
+    "prelint": "prisma generate",
+    "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

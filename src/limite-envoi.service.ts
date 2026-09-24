@@ -3,7 +3,7 @@ import {
   HttpStatus,
   Injectable,
   OnModuleDestroy,
-} from "@nestjs/common";
+} from '@nestjs/common';
 
 // Au plus MAX_ENVOIS_PAR_FENETRE messages (privés et de salon confondus) par
 // utilisateur sur une fenêtre glissante de FENETRE_ENVOI_MS : assez pour une
@@ -41,7 +41,7 @@ export class LimiteEnvoiService implements OnModuleDestroy {
     if (recents.length >= MAX_ENVOIS_PAR_FENETRE) {
       this.envois.set(userId, recents);
       throw new HttpException(
-        "Trop de messages envoyés, réessayez dans quelques secondes",
+        'Trop de messages envoyés, réessayez dans quelques secondes',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }

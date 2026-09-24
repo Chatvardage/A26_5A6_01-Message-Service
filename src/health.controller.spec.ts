@@ -1,48 +1,48 @@
-import { ServiceUnavailableException } from "@nestjs/common";
-import { HealthController } from "./health.controller";
+import { ServiceUnavailableException } from '@nestjs/common';
+import { HealthController } from './health.controller';
 
-describe("HealthController", () => {
-  it("reports healthy dependencies", async () => {
+describe('HealthController', () => {
+  it('reports healthy dependencies', async () => {
     const prisma: any = { $queryRaw: jest.fn().mockResolvedValue([1]) };
-    const redis: any = { ping: jest.fn().mockResolvedValue("PONG") };
+    const redis: any = { ping: jest.fn().mockResolvedValue('PONG') };
     const controller = new HealthController(prisma, redis);
     await expect(controller.health()).resolves.toEqual({
-      status: "ok",
-      service: "message-service",
-      database: "ok",
-      redis: "ok",
+      status: 'ok',
+      service: 'message-service',
+      database: 'ok',
+      redis: 'ok',
     });
   });
 
-  it("reports a non-PONG Redis response as degraded", async () => {
+  it('reports a non-PONG Redis response as degraded', async () => {
     const prisma: any = { $queryRaw: jest.fn().mockResolvedValue([1]) };
-    const redis: any = { ping: jest.fn().mockResolvedValue("NOPE") };
+    const redis: any = { ping: jest.fn().mockResolvedValue('NOPE') };
     const controller = new HealthController(prisma, redis);
     await expect(controller.health()).rejects.toMatchObject({
       response: {
-        status: "degraded",
-        service: "message-service",
-        database: "ok",
-        redis: "error",
+        status: 'degraded',
+        service: 'message-service',
+        database: 'ok',
+        redis: 'error',
       },
     });
   });
 
-  it("reports database failure independently", async () => {
+  it('reports database failure independently', async () => {
     const prisma: any = {
-      $queryRaw: jest.fn().mockRejectedValue(new Error("db")),
+      $queryRaw: jest.fn().mockRejectedValue(new Error('db')),
     };
-    const redis: any = { ping: jest.fn().mockResolvedValue("PONG") };
+    const redis: any = { ping: jest.fn().mockResolvedValue('PONG') };
     const controller = new HealthController(prisma, redis);
     await expect(controller.health()).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
   });
 
-  it("reports Redis failure independently", async () => {
+  it('reports Redis failure independently', async () => {
     const prisma: any = { $queryRaw: jest.fn().mockResolvedValue([1]) };
     const redis: any = {
-      ping: jest.fn().mockRejectedValue(new Error("redis")),
+      ping: jest.fn().mockRejectedValue(new Error('redis')),
     };
     const controller = new HealthController(prisma, redis);
     await expect(controller.health()).rejects.toBeInstanceOf(

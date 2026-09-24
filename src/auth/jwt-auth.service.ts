@@ -3,13 +3,13 @@ import {
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
-} from "@nestjs/common";
+} from '@nestjs/common';
 
 export type AuthenticatedUser = {
   id: string;
   pseudo: string;
   courriel: string;
-  role: "admin" | "moderateur" | "utilisateur";
+  role: 'admin' | 'moderateur' | 'utilisateur';
 };
 
 @Injectable()
@@ -18,7 +18,7 @@ export class JwtAuthService {
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
 
     if (!match) {
-      throw new UnauthorizedException("Authorization Bearer requis");
+      throw new UnauthorizedException('Authorization Bearer requis');
     }
 
     return match[1];
@@ -26,8 +26,8 @@ export class JwtAuthService {
 
   async verifyToken(token: string): Promise<AuthenticatedUser> {
     const baseUrl = (
-      process.env.AUTH_SERVICE_URL ?? "http://localhost:3001"
-    ).replace(/\/$/, "");
+      process.env.AUTH_SERVICE_URL ?? 'http://localhost:3001'
+    ).replace(/\/$/, '');
 
     const configuredTimeout = Number(
       process.env.AUTH_SERVICE_TIMEOUT_MS ?? 3000,
@@ -53,12 +53,12 @@ export class JwtAuthService {
     }
 
     if (response.status === 401) {
-      throw new UnauthorizedException("Jeton invalide, expiré ou révoqué");
+      throw new UnauthorizedException('Jeton invalide, expiré ou révoqué');
     }
 
     if (response.status === 403) {
       throw new ForbiddenException(
-        "Accès refusé par le service d’authentification",
+        'Accès refusé par le service d’authentification',
       );
     }
 
@@ -78,17 +78,17 @@ export class JwtAuthService {
       );
     }
 
-    const validRoles: AuthenticatedUser["role"][] = [
-      "admin",
-      "moderateur",
-      "utilisateur",
+    const validRoles: AuthenticatedUser['role'][] = [
+      'admin',
+      'moderateur',
+      'utilisateur',
     ];
 
     if (
-      typeof user.id !== "string" ||
-      typeof user.pseudo !== "string" ||
-      typeof user.courriel !== "string" ||
-      typeof user.role !== "string" ||
+      typeof user.id !== 'string' ||
+      typeof user.pseudo !== 'string' ||
+      typeof user.courriel !== 'string' ||
+      typeof user.role !== 'string' ||
       !validRoles.includes(user.role)
     ) {
       throw new ServiceUnavailableException(

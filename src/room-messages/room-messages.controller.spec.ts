@@ -1,9 +1,9 @@
-import { RoomMessagesController } from "./room-messages.controller";
+import { RoomMessagesController } from './room-messages.controller';
 
-describe("RoomMessagesController", () => {
+describe('RoomMessagesController', () => {
   let service: any;
   let controller: RoomMessagesController;
-  const req: any = { auth: { id: "u1", role: "utilisateur" } };
+  const req: any = { auth: { id: 'u1', role: 'utilisateur' } };
 
   beforeEach(() => {
     service = {
@@ -16,7 +16,7 @@ describe("RoomMessagesController", () => {
     controller = new RoomMessagesController(service);
   });
 
-  it("delegates authenticated CRUD operations", async () => {
+  it('delegates authenticated CRUD operations', async () => {
     const query = { limit: 50 };
     service.create.mockResolvedValue(1);
     service.history.mockResolvedValue([]);
@@ -24,20 +24,20 @@ describe("RoomMessagesController", () => {
     service.update.mockResolvedValue(1);
     service.remove.mockResolvedValue(undefined);
 
-    expect(await controller.create(req, "r1", { content: "x" })).toBe(1);
-    expect(await controller.history(req, "r1", query)).toEqual([]);
-    expect(await controller.findOne(req, "r1", "m")).toBe(1);
-    expect(await controller.update(req, "r1", "m", { content: "y" })).toBe(1);
-    expect(await controller.remove(req, "r1", "m")).toEqual({ deleted: true });
+    expect(await controller.create(req, 'r1', { content: 'x' })).toBe(1);
+    expect(await controller.history(req, 'r1', query)).toEqual([]);
+    expect(await controller.findOne(req, 'r1', 'm')).toBe(1);
+    expect(await controller.update(req, 'r1', 'm', { content: 'y' })).toBe(1);
+    expect(await controller.remove(req, 'r1', 'm')).toEqual({ deleted: true });
 
-    expect(service.create).toHaveBeenCalledWith(req.auth, "r1", {
-      content: "x",
+    expect(service.create).toHaveBeenCalledWith(req.auth, 'r1', {
+      content: 'x',
     });
-    expect(service.history).toHaveBeenCalledWith(req.auth, "r1", query);
-    expect(service.findOne).toHaveBeenCalledWith(req.auth, "r1", "m");
-    expect(service.update).toHaveBeenCalledWith(req.auth, "r1", "m", {
-      content: "y",
+    expect(service.history).toHaveBeenCalledWith(req.auth, 'r1', query);
+    expect(service.findOne).toHaveBeenCalledWith(req.auth, 'r1', 'm');
+    expect(service.update).toHaveBeenCalledWith(req.auth, 'r1', 'm', {
+      content: 'y',
     });
-    expect(service.remove).toHaveBeenCalledWith(req.auth, "r1", "m");
+    expect(service.remove).toHaveBeenCalledWith(req.auth, 'r1', 'm');
   });
 });

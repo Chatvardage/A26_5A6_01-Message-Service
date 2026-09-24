@@ -1,9 +1,9 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
-import { RedisService } from "../redis.service";
-import { EvenementServeurDto } from "./evenement-serveur.dto";
-import { InternalTokenGuard } from "./internal-token.guard";
+import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { RedisService } from '../redis.service';
+import { EvenementServeurDto } from './evenement-serveur.dto';
+import { InternalTokenGuard } from './internal-token.guard';
 
-export const SERVEUR_CHANNEL = "serveur.change";
+export const SERVEUR_CHANNEL = 'serveur.change';
 
 /**
  * Point d'entrée des événements temps réel produits par d'autres services
@@ -11,12 +11,12 @@ export const SERVEUR_CHANNEL = "serveur.change";
  * Socket.IO de chaque instance relaie aux destinataires (voir
  * MessagesGateway, `serveur.change`).
  */
-@Controller("internal")
+@Controller('internal')
 @UseGuards(InternalTokenGuard)
 export class InternalEventsController {
   constructor(private readonly redis: RedisService) {}
 
-  @Post("events")
+  @Post('events')
   @HttpCode(202)
   async recevoir(@Body() dto: EvenementServeurDto): Promise<{ accepte: true }> {
     await this.redis.publish(SERVEUR_CHANNEL, {

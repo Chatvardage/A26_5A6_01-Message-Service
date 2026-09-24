@@ -1,5 +1,5 @@
-import { Logger, UsePipes, ValidationPipe } from "@nestjs/common";
-import { PrivateMessage, RoomMessage } from "@prisma/client";
+import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import { PrivateMessage, RoomMessage } from '@prisma/client';
 import {
   ConnectedSocket,
   MessageBody,
@@ -10,32 +10,32 @@ import {
   WebSocketGateway,
   WebSocketServer,
   WsException,
-} from "@nestjs/websockets";
-import { RemoteSocket, Server, Socket } from "socket.io";
-import { AuthenticatedUser, JwtAuthService } from "../auth/jwt-auth.service";
+} from '@nestjs/websockets';
+import { RemoteSocket, Server, Socket } from 'socket.io';
+import { AuthenticatedUser, JwtAuthService } from '../auth/jwt-auth.service';
 import {
   RAISONS_SERVEUR,
   RaisonServeur,
-} from "../internal/evenement-serveur.dto";
-import { SERVEUR_CHANNEL } from "../internal/internal-events.controller";
-import { RedisService } from "../redis.service";
-import { RoomMessagesService } from "../room-messages/room-messages.service";
-import { RoomIdDto } from "../room-messages/dto/room-id.dto";
-import { SendRoomMessageDto } from "../room-messages/dto/send-room-message.dto";
-import { Acteur, RoomsClientService } from "../rooms/rooms-client.service";
-import { CreateMessageDto } from "./dto/create-message.dto";
-import { PresenceDto } from "./dto/presence.dto";
-import { TypingDto } from "./dto/typing.dto";
-import { MessagesService } from "./messages.service";
+} from '../internal/evenement-serveur.dto';
+import { SERVEUR_CHANNEL } from '../internal/internal-events.controller';
+import { RedisService } from '../redis.service';
+import { RoomMessagesService } from '../room-messages/room-messages.service';
+import { RoomIdDto } from '../room-messages/dto/room-id.dto';
+import { SendRoomMessageDto } from '../room-messages/dto/send-room-message.dto';
+import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
+import { CreateMessageDto } from './dto/create-message.dto';
+import { PresenceDto } from './dto/presence.dto';
+import { TypingDto } from './dto/typing.dto';
+import { MessagesService } from './messages.service';
 
 interface SocketData {
   userId?: string;
   // Rôle global (Authentification), transmis à Room-Service pour les
   // droits des salons (ex. un admin peut écrire dans #annonces).
-  role?: AuthenticatedUser["role"];
+  role?: AuthenticatedUser['role'];
   // Dernière présence annoncée sur ce socket (voir updatePresence), pour
   // l'instantané envoyé aux nouveaux clients.
-  presence?: PresenceEvent["statut"];
+  presence?: PresenceEvent['statut'];
   // Salons rejoints par ce socket (id du salon -> id de son serveur), pour
   // retirer le socket d'un salon dont il perd l'accès (voir
   // revoquerAccesPerdus).
@@ -48,21 +48,21 @@ interface SocketData {
 // Événements émis depuis un socket (les autres passent par this.server) :
 // instantané de présence d'un nouveau client, indicateur de frappe relayé.
 interface EvenementsVersClient {
-  "presence.snapshot": (payload: { enLigne: string[] }) => void;
+  'presence.snapshot': (payload: { enLigne: string[] }) => void;
   // Authentification du socket terminée (voir handleConnection) : le client
   // peut maintenant annoncer sa présence et rejoindre ses salons. Avant, ses
   // événements sont refusés (voir requireUserId) — ce qui laissait un client
   // reconnecté « hors ligne » pour les autres.
-  "connexion.prete": () => void;
+  'connexion.prete': () => void;
   typing: (payload: {
     userId: string;
-    scope: "room" | "dm";
+    scope: 'room' | 'dm';
     targetId: string;
     isTyping: boolean;
   }) => void;
   // Le socket a été retiré de ce salon (accès perdu) : le client l'oublie et
   // le rejoindra de nouveau s'il le retrouve dans ses salons accessibles.
-  "room-message.revoked": (payload: { roomId: string }) => void;
+  'room-message.revoked': (payload: { roomId: string }) => void;
 }
 
 type AuthenticatedSocket = Socket<
@@ -91,19 +91,19 @@ interface RoomMessageEvent {
 }
 
 const PRIVATE_MESSAGE_CHANNELS = [
-  "private-message.created",
-  "private-message.updated",
-  "private-message.deleted",
+  'private-message.created',
+  'private-message.updated',
+  'private-message.deleted',
 ];
 
 // Présence en temps réel : diffusée à tous les clients connectés (la
 // présence est déjà publique pour tout utilisateur authentifié, voir
 // GET /api/config-utilisateur/publiques). Passe par Redis pour atteindre les
 // clients de toutes les instances de Message-Service.
-const PRESENCE_CHANNEL = "presence.changed";
+const PRESENCE_CHANNEL = 'presence.changed';
 // Profil public modifié (alias, avatar, pseudo) : diffusé à tous, chaque
 // client recharge ce profil (voir updateProfil).
-const PROFIL_CHANNEL = "profil.changed";
+const PROFIL_CHANNEL = 'profil.changed';
 // Un `profil.update` est diffusé à TOUS les clients, et chacun recharge
 // alors ce profil (2 requêtes HTTP) : au plus un envoi par socket sur cette
 // fenêtre, pour qu'un client ne puisse pas faire générer une avalanche de
@@ -126,13 +126,13 @@ interface EvenementServeur {
 
 interface PresenceEvent {
   userId: string;
-  statut: "en-ligne" | "hors-ligne";
+  statut: 'en-ligne' | 'hors-ligne';
 }
 
 const ROOM_MESSAGE_CHANNELS = [
-  "room-message.created",
-  "room-message.updated",
-  "room-message.deleted",
+  'room-message.created',
+  'room-message.updated',
+  'room-message.deleted',
 ];
 
 /**
@@ -145,11 +145,11 @@ const ROOM_MESSAGE_CHANNELS = [
  */
 export function utilisateursARevalider(event: EvenementServeur): string[] {
   switch (event.raison) {
-    case "expulse":
-    case "membres":
+    case 'expulse':
+    case 'membres':
       return event.cibleId ? [event.cibleId] : [];
-    case "salons":
-    case "supprime":
+    case 'salons':
+    case 'supprime':
       return event.utilisateurIds;
     default:
       return [];
@@ -160,8 +160,8 @@ export function isAllowedOrigin(
   origin: string | undefined,
   callback: (error: Error | null, allow?: boolean) => void,
 ): void {
-  const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
-    .split(",")
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
+    .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
 
@@ -170,7 +170,7 @@ export function isAllowedOrigin(
 }
 
 @WebSocketGateway({
-  namespace: "/messages",
+  namespace: '/messages',
   cors: {
     // Évalue CORS_ORIGINS au moment de la connexion plutôt qu'à l'import.
     origin: isAllowedOrigin,
@@ -221,14 +221,14 @@ export class MessagesGateway
       await client.join(`user:${user.id}`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "erreur inconnue";
+        error instanceof Error ? error.message : 'erreur inconnue';
 
       this.logger.warn(`Connexion refusée [${client.id}]: ${message}`);
       client.disconnect(true);
       return;
     }
     await this.envoyerInstantanePresence(client);
-    client.emit("connexion.prete");
+    client.emit('connexion.prete');
   }
 
   /**
@@ -248,14 +248,14 @@ export class MessagesGateway
       const enLigne = new Set<string>();
       for (const socket of sockets) {
         const data = socket.data as SocketData;
-        if (data.userId && data.presence === "en-ligne") {
+        if (data.userId && data.presence === 'en-ligne') {
           enLigne.add(data.userId);
         }
       }
-      client.emit("presence.snapshot", { enLigne: [...enLigne] });
+      client.emit('presence.snapshot', { enLigne: [...enLigne] });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "erreur inconnue";
+        error instanceof Error ? error.message : 'erreur inconnue';
       this.logger.warn(`Instantané de présence non envoyé: ${message}`);
     }
   }
@@ -278,11 +278,11 @@ export class MessagesGateway
       if (restants.length > 0) return;
       await this.redis.publish(PRESENCE_CHANNEL, {
         userId,
-        statut: "hors-ligne",
+        statut: 'hors-ligne',
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "erreur inconnue";
+        error instanceof Error ? error.message : 'erreur inconnue';
       this.logger.warn(`Présence hors ligne non diffusée: ${message}`);
     }
   }
@@ -297,7 +297,7 @@ export class MessagesGateway
    * enregistré par le client : les autres rechargent ce profil. Aucune
    * donnée n'est transmise, seulement l'identifiant (celui du socket).
    */
-  @SubscribeMessage("profil.update")
+  @SubscribeMessage('profil.update')
   async updateProfil(
     @ConnectedSocket() client: AuthenticatedSocket,
   ): Promise<{ ok: true }> {
@@ -324,7 +324,7 @@ export class MessagesGateway
     return { ok: true };
   }
 
-  @SubscribeMessage("presence.update")
+  @SubscribeMessage('presence.update')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async updatePresence(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -339,7 +339,7 @@ export class MessagesGateway
     return { ok: true };
   }
 
-  @SubscribeMessage("private-message.send")
+  @SubscribeMessage('private-message.send')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async send(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -350,7 +350,7 @@ export class MessagesGateway
     return this.messages.create(senderId, dto);
   }
 
-  @SubscribeMessage("room-message.join")
+  @SubscribeMessage('room-message.join')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async joinRoom(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -361,7 +361,7 @@ export class MessagesGateway
     const acces = await this.rooms.verifierAcces(dto.roomId, acteur);
     if (!acces.peutLire) {
       throw new WsException(
-        "Vous devez être membre du salon pour rejoindre ce salon",
+        'Vous devez être membre du salon pour rejoindre ce salon',
       );
     }
 
@@ -373,7 +373,7 @@ export class MessagesGateway
     return { joined: true };
   }
 
-  @SubscribeMessage("room-message.leave")
+  @SubscribeMessage('room-message.leave')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async leaveRoom(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -384,7 +384,7 @@ export class MessagesGateway
     return { left: true };
   }
 
-  @SubscribeMessage("room-message.send")
+  @SubscribeMessage('room-message.send')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async sendRoom(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -397,7 +397,7 @@ export class MessagesGateway
     });
   }
 
-  @SubscribeMessage("typing")
+  @SubscribeMessage('typing')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   typing(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -407,12 +407,12 @@ export class MessagesGateway
 
     // Événement purement éphémère : ni persisté, ni routé par Redis/Postgres.
     const room =
-      dto.scope === "room" ? `room:${dto.targetId}` : `user:${dto.targetId}`;
+      dto.scope === 'room' ? `room:${dto.targetId}` : `user:${dto.targetId}`;
 
     // Dans un salon, seul un socket qui l'a rejoint (droits vérifiés par
     // joinRoom) peut signaler qu'il écrit : sinon, n'importe qui pourrait
     // afficher « X est en train d'écrire » dans un salon sans y avoir accès.
-    if (dto.scope === "room" && !client.rooms.has(room)) {
+    if (dto.scope === 'room' && !client.rooms.has(room)) {
       return;
     }
 
@@ -427,7 +427,7 @@ export class MessagesGateway
     }
     saisies[room] = { isTyping: dto.isTyping, temps: maintenant };
 
-    client.to(room).emit("typing", {
+    client.to(room).emit('typing', {
       userId,
       scope: dto.scope,
       targetId: dto.targetId,
@@ -439,7 +439,7 @@ export class MessagesGateway
     return {
       id: this.requireUserId(client),
       // Toujours défini avec userId (voir handleConnection).
-      role: client.data.role ?? "utilisateur",
+      role: client.data.role ?? 'utilisateur',
     };
   }
 
@@ -450,7 +450,7 @@ export class MessagesGateway
     // termine la validation distante du JWT. On refuse alors explicitement
     // l'action : aucune écriture n'est possible avant l'authentification.
     if (!userId) {
-      throw new WsException("Utilisateur non authentifié");
+      throw new WsException('Utilisateur non authentifié');
     }
 
     return userId;
@@ -459,14 +459,14 @@ export class MessagesGateway
   private readSocketToken(client: AuthenticatedSocket): string {
     const auth: unknown = client.handshake.auth;
 
-    if (typeof auth !== "object" || auth === null || !("token" in auth)) {
-      throw new WsException("Token JWT manquant");
+    if (typeof auth !== 'object' || auth === null || !('token' in auth)) {
+      throw new WsException('Token JWT manquant');
     }
 
     const token = (auth as { token?: unknown }).token;
 
-    if (typeof token !== "string" || token.length === 0) {
-      throw new WsException("Token JWT manquant");
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new WsException('Token JWT manquant');
     }
 
     return token;
@@ -555,7 +555,7 @@ export class MessagesGateway
 
   private broadcastProfilEvent(payload: string): void {
     const event = this.lireJson(payload) as { userId?: unknown } | null;
-    if (typeof event?.userId !== "string") {
+    if (typeof event?.userId !== 'string') {
       this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
       return;
     }
@@ -566,11 +566,11 @@ export class MessagesGateway
   private broadcastServeurEvent(payload: string): void {
     const event = this.lireJson(payload) as Partial<EvenementServeur> | null;
     if (
-      typeof event?.serveurId !== "string" ||
+      typeof event?.serveurId !== 'string' ||
       !RAISONS_SERVEUR.includes(event.raison as RaisonServeur) ||
-      (event.cibleId !== null && typeof event.cibleId !== "string") ||
+      (event.cibleId !== null && typeof event.cibleId !== 'string') ||
       !Array.isArray(event.utilisateurIds) ||
-      !event.utilisateurIds.every((id) => typeof id === "string")
+      !event.utilisateurIds.every((id) => typeof id === 'string')
     ) {
       this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
       return;
@@ -616,17 +616,17 @@ export class MessagesGateway
         for (const [salonId, serveurId] of Object.entries(salons)) {
           if (serveurId !== event.serveurId) continue;
           if (
-            event.raison !== "supprime" &&
+            event.raison !== 'supprime' &&
             (await this.peutEncoreLire(salonId, {
               id: userId,
-              role: socket.data.role ?? "utilisateur",
+              role: socket.data.role ?? 'utilisateur',
             }))
           ) {
             continue;
           }
           socket.leave(`room:${salonId}`);
           delete salons[salonId];
-          socket.emit("room-message.revoked", { roomId: salonId });
+          socket.emit('room-message.revoked', { roomId: salonId });
         }
       }
     }
@@ -657,8 +657,8 @@ export class MessagesGateway
 
     const candidat = event as Partial<PresenceEvent> | null;
     if (
-      typeof candidat?.userId !== "string" ||
-      (candidat.statut !== "en-ligne" && candidat.statut !== "hors-ligne")
+      typeof candidat?.userId !== 'string' ||
+      (candidat.statut !== 'en-ligne' && candidat.statut !== 'hors-ligne')
     ) {
       this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
       return;
@@ -671,30 +671,30 @@ export class MessagesGateway
   }
 
   private isPrivateMessageEvent(value: unknown): value is PrivateMessageEvent {
-    if (typeof value !== "object" || value === null) {
+    if (typeof value !== 'object' || value === null) {
       return false;
     }
 
     const event = value as Record<string, unknown>;
 
     return (
-      typeof event.id === "string" &&
-      typeof event.senderId === "string" &&
-      typeof event.recipientId === "string"
+      typeof event.id === 'string' &&
+      typeof event.senderId === 'string' &&
+      typeof event.recipientId === 'string'
     );
   }
 
   private isRoomMessageEvent(value: unknown): value is RoomMessageEvent {
-    if (typeof value !== "object" || value === null) {
+    if (typeof value !== 'object' || value === null) {
       return false;
     }
 
     const event = value as Record<string, unknown>;
 
     return (
-      typeof event.id === "string" &&
-      typeof event.roomId === "string" &&
-      typeof event.authorId === "string"
+      typeof event.id === 'string' &&
+      typeof event.roomId === 'string' &&
+      typeof event.authorId === 'string'
     );
   }
 }

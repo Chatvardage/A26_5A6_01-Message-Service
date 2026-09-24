@@ -1,4 +1,4 @@
-import { PrivateMessage } from "@prisma/client";
+import { PrivateMessage } from '@prisma/client';
 
 export type ConversationSummary = {
   otherUserId: string;

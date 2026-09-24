@@ -3,15 +3,15 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { RoomMessage } from "@prisma/client";
-import { LimiteEnvoiService } from "../limite-envoi.service";
-import { PrismaService } from "../prisma.service";
-import { RedisService } from "../redis.service";
-import { Acteur, RoomsClientService } from "../rooms/rooms-client.service";
-import { CreateRoomMessageDto } from "./dto/create-room-message.dto";
-import { RoomHistoryQueryDto } from "./dto/room-history-query.dto";
-import { UpdateRoomMessageDto } from "./dto/update-room-message.dto";
+} from '@nestjs/common';
+import { RoomMessage } from '@prisma/client';
+import { LimiteEnvoiService } from '../limite-envoi.service';
+import { PrismaService } from '../prisma.service';
+import { RedisService } from '../redis.service';
+import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
+import { CreateRoomMessageDto } from './dto/create-room-message.dto';
+import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
+import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
 
 @Injectable()
 export class RoomMessagesService {
@@ -31,11 +31,11 @@ export class RoomMessagesService {
     // le solliciter à chaque tentative.
     this.limiteEnvoi.verifier(acteur.id);
     const acces = await this.rooms.verifierAcces(roomId, acteur);
-    this.exigerLecture(acces.peutLire, "y envoyer un message");
+    this.exigerLecture(acces.peutLire, 'y envoyer un message');
     // Salon lisible mais en écriture réservée (ex. #annonces).
     if (!acces.peutEcrire) {
       throw new ForbiddenException(
-        "Seuls les modérateurs peuvent écrire dans ce salon",
+        'Seuls les modérateurs peuvent écrire dans ce salon',
       );
     }
 
@@ -45,7 +45,7 @@ export class RoomMessagesService {
     });
 
     // 2) Only after a successful DB write do we publish the event.
-    await this.redis.publish("room-message.created", message);
+    await this.redis.publish('room-message.created', message);
     return message;
   }
 
@@ -63,7 +63,7 @@ export class RoomMessagesService {
       });
 
       if (!cursorMessage) {
-        throw new BadRequestException("Curseur invalide pour ce salon");
+        throw new BadRequestException('Curseur invalide pour ce salon');
       }
     }
 
@@ -71,7 +71,7 @@ export class RoomMessagesService {
       where: { roomId },
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
       take: query.limit,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     // Même convention que MessagesService.history() : on récupère d'abord les
@@ -91,7 +91,7 @@ export class RoomMessagesService {
       where: { id },
     });
     if (!message || message.roomId !== roomId) {
-      throw new NotFoundException("Message introuvable");
+      throw new NotFoundException('Message introuvable');
     }
     return message;
   }
@@ -108,7 +108,7 @@ export class RoomMessagesService {
       where: { id },
     });
     if (!existing || existing.roomId !== roomId) {
-      throw new NotFoundException("Message introuvable");
+      throw new NotFoundException('Message introuvable');
     }
     if (existing.authorId !== acteur.id) {
       throw new ForbiddenException("Seul l'auteur peut modifier ce message");
@@ -119,7 +119,7 @@ export class RoomMessagesService {
       data: { content: dto.content },
     });
 
-    await this.redis.publish("room-message.updated", message);
+    await this.redis.publish('room-message.updated', message);
     return message;
   }
 
@@ -129,7 +129,7 @@ export class RoomMessagesService {
       where: { id },
     });
     if (!existing || existing.roomId !== roomId) {
-      throw new NotFoundException("Message introuvable");
+      throw new NotFoundException('Message introuvable');
     }
     if (existing.authorId !== acteur.id) {
       throw new ForbiddenException("Seul l'auteur peut supprimer ce message");
@@ -137,7 +137,7 @@ export class RoomMessagesService {
 
     await this.prisma.roomMessage.delete({ where: { id } });
 
-    await this.redis.publish("room-message.deleted", {
+    await this.redis.publish('room-message.deleted', {
       id: existing.id,
       roomId: existing.roomId,
       authorId: existing.authorId,
@@ -146,7 +146,7 @@ export class RoomMessagesService {
 
   private async verifierLecture(acteur: Acteur, roomId: string) {
     const acces = await this.rooms.verifierAcces(roomId, acteur);
-    this.exigerLecture(acces.peutLire, "consulter ce contenu");
+    this.exigerLecture(acces.peutLire, 'consulter ce contenu');
   }
 
   private exigerLecture(peutLire: boolean, verb: string): void {

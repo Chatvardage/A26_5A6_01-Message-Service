@@ -6,16 +6,16 @@ import {
   IsOptional,
   IsString,
   MaxLength,
-} from "class-validator";
+} from 'class-validator';
 
 /** Raisons d'un changement de serveur, pour l'affichage côté client. */
 export const RAISONS_SERVEUR = [
-  "modifie", // serveur renommé, rendu public/privé, icône
-  "supprime", // serveur supprimé
-  "membres", // arrivée, départ, rôle modifié
-  "expulse", // `cibleId` a été expulsé
-  "invitation", // `cibleId` a été invité
-  "salons", // salon créé, modifié ou supprimé
+  'modifie', // serveur renommé, rendu public/privé, icône
+  'supprime', // serveur supprimé
+  'membres', // arrivée, départ, rôle modifié
+  'expulse', // `cibleId` a été expulsé
+  'invitation', // `cibleId` a été invité
+  'salons', // salon créé, modifié ou supprimé
 ] as const;
 
 export type RaisonServeur = (typeof RAISONS_SERVEUR)[number];

@@ -1,5 +1,5 @@
-import { Injectable, OnModuleDestroy } from "@nestjs/common";
-import Redis from "ioredis";
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
@@ -9,7 +9,7 @@ export class RedisService implements OnModuleDestroy {
   private messageHandler?: (channel: string, payload: string) => void;
 
   constructor() {
-    const url = process.env.REDIS_URL ?? "redis://localhost:6379";
+    const url = process.env.REDIS_URL ?? 'redis://localhost:6379';
     this.publisher = new Redis(url, {
       lazyConnect: true,
       maxRetriesPerRequest: 1,
@@ -21,7 +21,7 @@ export class RedisService implements OnModuleDestroy {
   }
 
   private ensureConnected(client: Redis): Promise<void> {
-    if (client.status !== "wait") return Promise.resolve();
+    if (client.status !== 'wait') return Promise.resolve();
 
     const existing = this.connectionPromises.get(client);
     if (existing) return existing;
@@ -51,15 +51,15 @@ export class RedisService implements OnModuleDestroy {
     await this.subscriber.subscribe(...channels);
 
     if (this.messageHandler) {
-      this.subscriber.removeListener("message", this.messageHandler);
+      this.subscriber.removeListener('message', this.messageHandler);
     }
 
     this.messageHandler = handler;
-    this.subscriber.on("message", handler);
+    this.subscriber.on('message', handler);
   }
 
   onModuleDestroy(): void {
-    if (this.publisher.status !== "end") this.publisher.disconnect();
-    if (this.subscriber.status !== "end") this.subscriber.disconnect();
+    if (this.publisher.status !== 'end') this.publisher.disconnect();
+    if (this.subscriber.status !== 'end') this.subscriber.disconnect();
   }
 }

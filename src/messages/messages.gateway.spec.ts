@@ -1,43 +1,43 @@
-import { UnauthorizedException } from "@nestjs/common";
+import { UnauthorizedException } from '@nestjs/common';
 import {
   DELAI_MIN_PROFIL_MS,
   DELAI_MIN_SAISIE_MS,
   isAllowedOrigin,
   MessagesGateway,
   utilisateursARevalider,
-} from "./messages.gateway";
+} from './messages.gateway';
 
-describe("MessagesGateway", () => {
-  it("accepts the default WebSocket CORS origin", () => {
+describe('MessagesGateway', () => {
+  it('accepts the default WebSocket CORS origin', () => {
     delete process.env.CORS_ORIGINS;
     const callback = jest.fn();
 
-    isAllowedOrigin("http://localhost:5173", callback);
+    isAllowedOrigin('http://localhost:5173', callback);
 
     expect(callback).toHaveBeenCalledWith(null, true);
   });
 
-  it("reads and filters configured WebSocket CORS origins at connection time", () => {
-    process.env.CORS_ORIGINS = " http://one.test, ,http://two.test ";
+  it('reads and filters configured WebSocket CORS origins at connection time', () => {
+    process.env.CORS_ORIGINS = ' http://one.test, ,http://two.test ';
     const callback = jest.fn();
 
-    isAllowedOrigin("http://two.test", callback);
+    isAllowedOrigin('http://two.test', callback);
 
     expect(callback).toHaveBeenCalledWith(null, true);
     delete process.env.CORS_ORIGINS;
   });
 
-  it("rejects an unknown WebSocket CORS origin", () => {
-    process.env.CORS_ORIGINS = "http://allowed.test";
+  it('rejects an unknown WebSocket CORS origin', () => {
+    process.env.CORS_ORIGINS = 'http://allowed.test';
     const callback = jest.fn();
 
-    isAllowedOrigin("http://blocked.test", callback);
+    isAllowedOrigin('http://blocked.test', callback);
 
     expect(callback).toHaveBeenCalledWith(null, false);
     delete process.env.CORS_ORIGINS;
   });
 
-  it("accepts a WebSocket client without an Origin header", () => {
+  it('accepts a WebSocket client without an Origin header', () => {
     const callback = jest.fn();
 
     isAllowedOrigin(undefined, callback);
@@ -68,7 +68,7 @@ describe("MessagesGateway", () => {
     socketsParUtilisateur = {};
     const inRoom = jest.fn((room: string) => ({
       fetchSockets: jest.fn(async () =>
-        Promise.resolve(socketsParUtilisateur[room.replace("user:", "")] ?? []),
+        Promise.resolve(socketsParUtilisateur[room.replace('user:', '')] ?? []),
       ),
     }));
     (gateway as any).server = { to, in: inRoom };
@@ -82,13 +82,13 @@ describe("MessagesGateway", () => {
     role?: string,
   ) {
     return {
-      data: { userId: "u3", role, salons },
+      data: { userId: 'u3', role, salons },
       leave: jest.fn(),
       emit: jest.fn(),
     };
   }
 
-  it("subscribes to all DM and room channels and broadcasts DM events to both users", async () => {
+  it('subscribes to all DM and room channels and broadcasts DM events to both users', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -99,29 +99,29 @@ describe("MessagesGateway", () => {
     await gateway.afterInit();
     expect(redis.subscribe).toHaveBeenCalledWith(
       [
-        "private-message.created",
-        "private-message.updated",
-        "private-message.deleted",
-        "room-message.created",
-        "room-message.updated",
-        "room-message.deleted",
-        "presence.changed",
-        "profil.changed",
-        "serveur.change",
+        'private-message.created',
+        'private-message.updated',
+        'private-message.deleted',
+        'room-message.created',
+        'room-message.updated',
+        'room-message.deleted',
+        'presence.changed',
+        'profil.changed',
+        'serveur.change',
       ],
       expect.any(Function),
     );
 
     handler(
-      "private-message.created",
-      JSON.stringify({ id: "m1", senderId: "u1", recipientId: "u2" }),
+      'private-message.created',
+      JSON.stringify({ id: 'm1', senderId: 'u1', recipientId: 'u2' }),
     );
-    expect(to).toHaveBeenCalledWith("user:u1");
-    expect(to).toHaveBeenCalledWith("user:u2");
+    expect(to).toHaveBeenCalledWith('user:u1');
+    expect(to).toHaveBeenCalledWith('user:u2');
     expect(emit).toHaveBeenCalledTimes(2);
   });
 
-  it("emits once for a self-message", async () => {
+  it('emits once for a self-message', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -130,13 +130,13 @@ describe("MessagesGateway", () => {
     );
     await gateway.afterInit();
     handler(
-      "private-message.created",
-      JSON.stringify({ id: "m1", senderId: "u1", recipientId: "u1" }),
+      'private-message.created',
+      JSON.stringify({ id: 'm1', senderId: 'u1', recipientId: 'u1' }),
     );
     expect(emit).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores an invalid Redis channel", async () => {
+  it('ignores an invalid Redis channel', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -145,13 +145,13 @@ describe("MessagesGateway", () => {
     );
     await gateway.afterInit();
     handler(
-      "x",
-      JSON.stringify({ id: "m1", senderId: "u1", recipientId: "u2" }),
+      'x',
+      JSON.stringify({ id: 'm1', senderId: 'u1', recipientId: 'u2' }),
     );
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("ignores invalid JSON for a DM event", async () => {
+  it('ignores invalid JSON for a DM event', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -159,11 +159,11 @@ describe("MessagesGateway", () => {
       },
     );
     await gateway.afterInit();
-    handler("private-message.created", "{");
+    handler('private-message.created', '{');
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("ignores a malformed DM Redis payload", async () => {
+  it('ignores a malformed DM Redis payload', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -171,11 +171,11 @@ describe("MessagesGateway", () => {
       },
     );
     await gateway.afterInit();
-    handler("private-message.created", JSON.stringify({ senderId: "u1" }));
+    handler('private-message.created', JSON.stringify({ senderId: 'u1' }));
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("broadcasts a room event to the room", async () => {
+  it('broadcasts a room event to the room', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -184,14 +184,14 @@ describe("MessagesGateway", () => {
     );
     await gateway.afterInit();
     handler(
-      "room-message.created",
-      JSON.stringify({ id: "m1", roomId: "r1", authorId: "u1" }),
+      'room-message.created',
+      JSON.stringify({ id: 'm1', roomId: 'r1', authorId: 'u1' }),
     );
-    expect(to).toHaveBeenCalledWith("room:r1");
+    expect(to).toHaveBeenCalledWith('room:r1');
     expect(emit).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores invalid JSON for a room event", async () => {
+  it('ignores invalid JSON for a room event', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -199,11 +199,11 @@ describe("MessagesGateway", () => {
       },
     );
     await gateway.afterInit();
-    handler("room-message.created", "{");
+    handler('room-message.created', '{');
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("ignores a malformed room Redis payload", async () => {
+  it('ignores a malformed room Redis payload', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -211,11 +211,11 @@ describe("MessagesGateway", () => {
       },
     );
     await gateway.afterInit();
-    handler("room-message.created", JSON.stringify({ authorId: "u1" }));
+    handler('room-message.created', JSON.stringify({ authorId: 'u1' }));
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("ignores a null room Redis payload", async () => {
+  it('ignores a null room Redis payload', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -223,11 +223,11 @@ describe("MessagesGateway", () => {
       },
     );
     await gateway.afterInit();
-    handler("room-message.created", "null");
+    handler('room-message.created', 'null');
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("disconnects when the socket token is missing", async () => {
+  it('disconnects when the socket token is missing', async () => {
     const client: any = {
       handshake: { auth: {} },
       data: {},
@@ -239,11 +239,11 @@ describe("MessagesGateway", () => {
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("disconnects when JWT verification fails", async () => {
+  it('disconnects when JWT verification fails', async () => {
     jwt.verifyToken.mockRejectedValue(new UnauthorizedException());
 
     const client: any = {
-      handshake: { auth: { token: "bad" } },
+      handshake: { auth: { token: 'bad' } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
@@ -252,11 +252,11 @@ describe("MessagesGateway", () => {
     expect(client.disconnect).toHaveBeenCalledWith(true);
   });
 
-  it("disconnects when JWT verification throws a non-Error value", async () => {
-    jwt.verifyToken.mockRejectedValue("failure");
+  it('disconnects when JWT verification throws a non-Error value', async () => {
+    jwt.verifyToken.mockRejectedValue('failure');
     const client: any = {
-      id: "socket-unknown-error",
-      handshake: { auth: { token: "bad" } },
+      id: 'socket-unknown-error',
+      handshake: { auth: { token: 'bad' } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
@@ -265,60 +265,60 @@ describe("MessagesGateway", () => {
     expect(client.disconnect).toHaveBeenCalledWith(true);
   });
 
-  it("verifies JWT and joins the authenticated user room", async () => {
-    jwt.verifyToken.mockResolvedValue({ id: "u1", role: "utilisateur" });
+  it('verifies JWT and joins the authenticated user room', async () => {
+    jwt.verifyToken.mockResolvedValue({ id: 'u1', role: 'utilisateur' });
     const client: any = {
-      handshake: { auth: { token: "jwt" } },
+      handshake: { auth: { token: 'jwt' } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn().mockResolvedValue(undefined),
       emit: jest.fn(),
     };
     await gateway.handleConnection(client);
-    expect(jwt.verifyToken).toHaveBeenCalledWith("jwt");
-    expect(client.data.userId).toBe("u1");
-    expect(client.data.role).toBe("utilisateur");
-    expect(client.join).toHaveBeenCalledWith("user:u1");
+    expect(jwt.verifyToken).toHaveBeenCalledWith('jwt');
+    expect(client.data.userId).toBe('u1');
+    expect(client.data.role).toBe('utilisateur');
+    expect(client.join).toHaveBeenCalledWith('user:u1');
     // Signalé en dernier, une fois le socket authentifié et dans sa room :
     // le client peut alors annoncer sa présence et rejoindre ses salons.
-    expect(client.emit).toHaveBeenLastCalledWith("connexion.prete");
+    expect(client.emit).toHaveBeenLastCalledWith('connexion.prete');
   });
 
-  it("refuses sending when the socket has no authenticated user", async () => {
+  it('refuses sending when the socket has no authenticated user', async () => {
     const client: any = { data: {} };
     await expect(
-      gateway.send(client, { recipientId: "u2", content: "x" }),
-    ).rejects.toThrow("Utilisateur non authentifié");
+      gateway.send(client, { recipientId: 'u2', content: 'x' }),
+    ).rejects.toThrow('Utilisateur non authentifié');
     expect(messages.create).not.toHaveBeenCalled();
   });
 
-  it("delegates sending using the authenticated socket user", async () => {
-    messages.create.mockResolvedValue({ id: "m1" });
-    const client: any = { data: { userId: "u1" } };
-    await gateway.send(client, { recipientId: "u2", content: "x" });
-    expect(messages.create).toHaveBeenCalledWith("u1", {
-      recipientId: "u2",
-      content: "x",
+  it('delegates sending using the authenticated socket user', async () => {
+    messages.create.mockResolvedValue({ id: 'm1' });
+    const client: any = { data: { userId: 'u1' } };
+    await gateway.send(client, { recipientId: 'u2', content: 'x' });
+    expect(messages.create).toHaveBeenCalledWith('u1', {
+      recipientId: 'u2',
+      content: 'x',
     });
   });
 
   // --- présence en temps réel ---
 
-  it("ignores the disconnect of a socket that was never authenticated", async () => {
+  it('ignores the disconnect of a socket that was never authenticated', async () => {
     redis.publish = jest.fn();
-    await gateway.handleDisconnect({ id: "socket-1" } as any);
-    await gateway.handleDisconnect({ id: "socket-2", data: {} } as any);
+    await gateway.handleDisconnect({ id: 'socket-1' } as any);
+    await gateway.handleDisconnect({ id: 'socket-2', data: {} } as any);
     expect(redis.publish).not.toHaveBeenCalled();
   });
 
-  it("does not announce offline while the user still has another socket", async () => {
+  it('does not announce offline while the user still has another socket', async () => {
     redis.publish = jest.fn();
-    const fetchSockets = jest.fn().mockResolvedValue([{ id: "autre" }]);
+    const fetchSockets = jest.fn().mockResolvedValue([{ id: 'autre' }]);
     (gateway as any).server = { in: jest.fn(() => ({ fetchSockets })) };
 
-    await gateway.handleDisconnect({ id: "s1", data: { userId: "u1" } } as any);
+    await gateway.handleDisconnect({ id: 's1', data: { userId: 'u1' } } as any);
 
-    expect((gateway as any).server.in).toHaveBeenCalledWith("user:u1");
+    expect((gateway as any).server.in).toHaveBeenCalledWith('user:u1');
     expect(redis.publish).not.toHaveBeenCalled();
   });
 
@@ -327,39 +327,39 @@ describe("MessagesGateway", () => {
     const fetchSockets = jest.fn().mockResolvedValue([]);
     (gateway as any).server = { in: jest.fn(() => ({ fetchSockets })) };
 
-    await gateway.handleDisconnect({ id: "s1", data: { userId: "u1" } } as any);
+    await gateway.handleDisconnect({ id: 's1', data: { userId: 'u1' } } as any);
 
-    expect(redis.publish).toHaveBeenCalledWith("presence.changed", {
-      userId: "u1",
-      statut: "hors-ligne",
+    expect(redis.publish).toHaveBeenCalledWith('presence.changed', {
+      userId: 'u1',
+      statut: 'hors-ligne',
     });
   });
 
-  it.each([new Error("redis down"), "failure"])(
-    "never throws when the offline announcement fails (%p)",
+  it.each([new Error('redis down'), 'failure'])(
+    'never throws when the offline announcement fails (%p)',
     async (erreur) => {
       redis.publish = jest.fn().mockRejectedValue(erreur);
       const fetchSockets = jest.fn().mockResolvedValue([]);
       (gateway as any).server = { in: jest.fn(() => ({ fetchSockets })) };
 
       await expect(
-        gateway.handleDisconnect({ id: "s1", data: { userId: "u1" } } as any),
+        gateway.handleDisconnect({ id: 's1', data: { userId: 'u1' } } as any),
       ).resolves.toBeUndefined();
     },
   );
 
-  it("sends the new client the users currently online (snapshot)", async () => {
-    jwt.verifyToken.mockResolvedValue({ id: "u1", role: "utilisateur" });
+  it('sends the new client the users currently online (snapshot)', async () => {
+    jwt.verifyToken.mockResolvedValue({ id: 'u1', role: 'utilisateur' });
     const fetchSockets = jest.fn().mockResolvedValue([
-      { data: { userId: "u2", presence: "en-ligne" } },
-      { data: { userId: "u2", presence: "en-ligne" } }, // 2e appareil
-      { data: { userId: "u3", presence: "hors-ligne" } },
-      { data: { userId: "u4" } }, // pas encore annoncé
+      { data: { userId: 'u2', presence: 'en-ligne' } },
+      { data: { userId: 'u2', presence: 'en-ligne' } }, // 2e appareil
+      { data: { userId: 'u3', presence: 'hors-ligne' } },
+      { data: { userId: 'u4' } }, // pas encore annoncé
       { data: {} }, // pas encore authentifié
     ]);
     (gateway as any).server = { fetchSockets };
     const client: any = {
-      handshake: { auth: { token: "jwt" } },
+      handshake: { auth: { token: 'jwt' } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn().mockResolvedValue(undefined),
@@ -368,18 +368,18 @@ describe("MessagesGateway", () => {
 
     await gateway.handleConnection(client);
 
-    expect(client.emit).toHaveBeenCalledWith("presence.snapshot", {
-      enLigne: ["u2"],
+    expect(client.emit).toHaveBeenCalledWith('presence.snapshot', {
+      enLigne: ['u2'],
     });
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
-  it("does not send a snapshot to a refused client", async () => {
+  it('does not send a snapshot to a refused client', async () => {
     jwt.verifyToken.mockRejectedValue(new UnauthorizedException());
     const fetchSockets = jest.fn();
     (gateway as any).server = { fetchSockets };
     const client: any = {
-      handshake: { auth: { token: "bad" } },
+      handshake: { auth: { token: 'bad' } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
@@ -390,15 +390,15 @@ describe("MessagesGateway", () => {
     expect(client.emit).not.toHaveBeenCalled();
   });
 
-  it.each([new Error("adapter down"), "failure"])(
-    "keeps the connection when the snapshot fails (%p)",
+  it.each([new Error('adapter down'), 'failure'])(
+    'keeps the connection when the snapshot fails (%p)',
     async (erreur) => {
-      jwt.verifyToken.mockResolvedValue({ id: "u1", role: "utilisateur" });
+      jwt.verifyToken.mockResolvedValue({ id: 'u1', role: 'utilisateur' });
       (gateway as any).server = {
         fetchSockets: jest.fn().mockRejectedValue(erreur),
       };
       const client: any = {
-        handshake: { auth: { token: "jwt" } },
+        handshake: { auth: { token: 'jwt' } },
         data: {},
         disconnect: jest.fn(),
         join: jest.fn().mockResolvedValue(undefined),
@@ -408,7 +408,7 @@ describe("MessagesGateway", () => {
       expect(client.disconnect).not.toHaveBeenCalled();
       // Pas d'instantané, mais la connexion est tout de même signalée prête.
       expect(client.emit).toHaveBeenCalledTimes(1);
-      expect(client.emit).toHaveBeenCalledWith("connexion.prete");
+      expect(client.emit).toHaveBeenCalledWith('connexion.prete');
     },
   );
 
@@ -417,27 +417,27 @@ describe("MessagesGateway", () => {
   it("publishes a profile change for the socket's own user only", async () => {
     redis.publish = jest.fn().mockResolvedValue(1);
     await expect(gateway.updateProfil({ data: {} } as any)).rejects.toThrow(
-      "Utilisateur non authentifié",
+      'Utilisateur non authentifié',
     );
     await expect(
-      gateway.updateProfil({ id: "s1", data: { userId: "u1" } } as any),
+      gateway.updateProfil({ id: 's1', data: { userId: 'u1' } } as any),
     ).resolves.toEqual({ ok: true });
-    expect(redis.publish).toHaveBeenCalledWith("profil.changed", {
-      userId: "u1",
+    expect(redis.publish).toHaveBeenCalledWith('profil.changed', {
+      userId: 'u1',
     });
   });
 
-  describe("limite de profil.update par socket", () => {
-    const socket = (id = "s1") => ({ id, data: { userId: "u1" } }) as any;
+  describe('limite de profil.update par socket', () => {
+    const socket = (id = 's1') => ({ id, data: { userId: 'u1' } }) as any;
 
     beforeEach(() => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
       redis.publish = jest.fn().mockResolvedValue(1);
     });
     afterEach(() => jest.useRealTimers());
 
-    it("regroupe les demandes rapprochées en un seul envoi différé", async () => {
+    it('regroupe les demandes rapprochées en un seul envoi différé', async () => {
       await gateway.updateProfil(socket());
       jest.advanceTimersByTime(1000);
       await gateway.updateProfil(socket());
@@ -447,8 +447,8 @@ describe("MessagesGateway", () => {
       // Fin de la fenêtre de DELAI_MIN_PROFIL_MS depuis le premier envoi.
       jest.advanceTimersByTime(DELAI_MIN_PROFIL_MS - 1000);
       expect(redis.publish).toHaveBeenCalledTimes(2);
-      expect(redis.publish).toHaveBeenLastCalledWith("profil.changed", {
-        userId: "u1",
+      expect(redis.publish).toHaveBeenLastCalledWith('profil.changed', {
+        userId: 'u1',
       });
 
       // L'envoi différé ouvre une nouvelle fenêtre.
@@ -458,42 +458,42 @@ describe("MessagesGateway", () => {
       expect(redis.publish).toHaveBeenCalledTimes(3);
     });
 
-    it("envoie tout de suite une fois la fenêtre écoulée", async () => {
+    it('envoie tout de suite une fois la fenêtre écoulée', async () => {
       await gateway.updateProfil(socket());
       jest.advanceTimersByTime(DELAI_MIN_PROFIL_MS);
       await gateway.updateProfil(socket());
       expect(redis.publish).toHaveBeenCalledTimes(2);
     });
 
-    it("limite chaque socket indépendamment, et oublie un socket fermé", async () => {
+    it('limite chaque socket indépendamment, et oublie un socket fermé', async () => {
       (gateway as any).server.in = jest.fn(() => ({
         fetchSockets: jest.fn().mockResolvedValue([]),
       }));
-      await gateway.updateProfil(socket("s1"));
-      await gateway.updateProfil(socket("s2"));
+      await gateway.updateProfil(socket('s1'));
+      await gateway.updateProfil(socket('s2'));
       expect(redis.publish).toHaveBeenCalledTimes(2);
 
-      await gateway.handleDisconnect(socket("s1"));
-      await gateway.updateProfil(socket("s1"));
-      expect(redis.publish).toHaveBeenCalledWith("profil.changed", {
-        userId: "u1",
+      await gateway.handleDisconnect(socket('s1'));
+      await gateway.updateProfil(socket('s1'));
+      expect(redis.publish).toHaveBeenCalledWith('profil.changed', {
+        userId: 'u1',
       });
       // 2 profils + présence hors ligne + nouveau profil de s1.
       expect(redis.publish).toHaveBeenCalledTimes(4);
     });
 
-    it("journalise un envoi différé en échec", async () => {
+    it('journalise un envoi différé en échec', async () => {
       const logger = jest
-        .spyOn((gateway as any).logger, "warn")
+        .spyOn((gateway as any).logger, 'warn')
         .mockImplementation(() => undefined);
       await gateway.updateProfil(socket());
-      redis.publish = jest.fn().mockRejectedValue(new Error("redis"));
+      redis.publish = jest.fn().mockRejectedValue(new Error('redis'));
       await gateway.updateProfil(socket());
       jest.advanceTimersByTime(DELAI_MIN_PROFIL_MS);
       await Promise.resolve();
       await Promise.resolve();
       expect(logger).toHaveBeenCalledWith(
-        expect.stringContaining("Profil non diffusé"),
+        expect.stringContaining('Profil non diffusé'),
       );
     });
   });
@@ -509,78 +509,78 @@ describe("MessagesGateway", () => {
     return (channel: string, payload: unknown) =>
       handler(
         channel,
-        typeof payload === "string" ? payload : JSON.stringify(payload),
+        typeof payload === 'string' ? payload : JSON.stringify(payload),
       );
   }
 
-  it("broadcasts profile changes to every client, ignoring invalid ones", async () => {
+  it('broadcasts profile changes to every client, ignoring invalid ones', async () => {
     const serverEmit = jest.fn();
     (gateway as any).server = { emit: serverEmit };
     const publier = await brancherRedis();
 
-    publier("profil.changed", { userId: "u1", pseudo: "fuite" });
-    publier("profil.changed", "pas du json");
-    publier("profil.changed", { userId: 3 });
+    publier('profil.changed', { userId: 'u1', pseudo: 'fuite' });
+    publier('profil.changed', 'pas du json');
+    publier('profil.changed', { userId: 3 });
 
     expect(serverEmit.mock.calls).toEqual([
-      ["profil.changed", { userId: "u1" }],
+      ['profil.changed', { userId: 'u1' }],
     ]);
   });
 
-  it("relays a server change to each listed user only", async () => {
+  it('relays a server change to each listed user only', async () => {
     const publier = await brancherRedis();
 
-    publier("serveur.change", {
-      serveurId: "s1",
-      raison: "expulse",
-      cibleId: "u3",
-      utilisateurIds: ["u1", "u3"],
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'expulse',
+      cibleId: 'u3',
+      utilisateurIds: ['u1', 'u3'],
     });
 
-    expect(to.mock.calls).toEqual([["user:u1"], ["user:u3"]]);
-    expect(emit).toHaveBeenCalledWith("serveur.change", {
-      serveurId: "s1",
-      raison: "expulse",
-      cibleId: "u3",
+    expect(to.mock.calls).toEqual([['user:u1'], ['user:u3']]);
+    expect(emit).toHaveBeenCalledWith('serveur.change', {
+      serveurId: 's1',
+      raison: 'expulse',
+      cibleId: 'u3',
     });
   });
 
   it.each([
-    "pas du json",
-    "null",
-    { serveurId: 1, raison: "salons", cibleId: null, utilisateurIds: [] },
-    { serveurId: "s", raison: "piratage", cibleId: null, utilisateurIds: [] },
-    { serveurId: "s", raison: "salons", cibleId: 5, utilisateurIds: [] },
-    { serveurId: "s", raison: "salons", cibleId: null, utilisateurIds: "u1" },
-    { serveurId: "s", raison: "salons", cibleId: null, utilisateurIds: [1] },
-  ])("ignores an invalid server change %#", async (payload) => {
+    'pas du json',
+    'null',
+    { serveurId: 1, raison: 'salons', cibleId: null, utilisateurIds: [] },
+    { serveurId: 's', raison: 'piratage', cibleId: null, utilisateurIds: [] },
+    { serveurId: 's', raison: 'salons', cibleId: 5, utilisateurIds: [] },
+    { serveurId: 's', raison: 'salons', cibleId: null, utilisateurIds: 'u1' },
+    { serveurId: 's', raison: 'salons', cibleId: null, utilisateurIds: [1] },
+  ])('ignores an invalid server change %#', async (payload) => {
     const publier = await brancherRedis();
-    publier("serveur.change", payload);
+    publier('serveur.change', payload);
     expect(to).not.toHaveBeenCalled();
   });
 
-  it("refuses a presence update before authentication", async () => {
+  it('refuses a presence update before authentication', async () => {
     redis.publish = jest.fn();
     await expect(
-      gateway.updatePresence({ data: {} } as any, { statut: "en-ligne" }),
-    ).rejects.toThrow("Utilisateur non authentifié");
+      gateway.updatePresence({ data: {} } as any, { statut: 'en-ligne' }),
+    ).rejects.toThrow('Utilisateur non authentifié');
     expect(redis.publish).not.toHaveBeenCalled();
   });
 
   it("publishes the caller's own presence and remembers it on the socket", async () => {
     redis.publish = jest.fn().mockResolvedValue(1);
-    const client: any = { data: { userId: "u1" } };
+    const client: any = { data: { userId: 'u1' } };
     await expect(
-      gateway.updatePresence(client, { statut: "hors-ligne" }),
+      gateway.updatePresence(client, { statut: 'hors-ligne' }),
     ).resolves.toEqual({ ok: true });
-    expect(client.data.presence).toBe("hors-ligne");
-    expect(redis.publish).toHaveBeenCalledWith("presence.changed", {
-      userId: "u1",
-      statut: "hors-ligne",
+    expect(client.data.presence).toBe('hors-ligne');
+    expect(redis.publish).toHaveBeenCalledWith('presence.changed', {
+      userId: 'u1',
+      statut: 'hors-ligne',
     });
   });
 
-  it("broadcasts a valid presence event to every client, and ignores invalid ones", async () => {
+  it('broadcasts a valid presence event to every client, and ignores invalid ones', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -592,28 +592,28 @@ describe("MessagesGateway", () => {
     await gateway.afterInit();
 
     handler(
-      "presence.changed",
-      JSON.stringify({ userId: "u1", statut: "en-ligne", extra: "x" }),
+      'presence.changed',
+      JSON.stringify({ userId: 'u1', statut: 'en-ligne', extra: 'x' }),
     );
-    expect(serverEmit).toHaveBeenCalledWith("presence.changed", {
-      userId: "u1",
-      statut: "en-ligne",
+    expect(serverEmit).toHaveBeenCalledWith('presence.changed', {
+      userId: 'u1',
+      statut: 'en-ligne',
     });
 
     serverEmit.mockClear();
-    handler("presence.changed", "pas du json");
-    handler("presence.changed", "null");
+    handler('presence.changed', 'pas du json');
+    handler('presence.changed', 'null');
     handler(
-      "presence.changed",
-      JSON.stringify({ userId: 1, statut: "en-ligne" }),
+      'presence.changed',
+      JSON.stringify({ userId: 1, statut: 'en-ligne' }),
     );
     handler(
-      "presence.changed",
-      JSON.stringify({ userId: "u1", statut: "absent" }),
+      'presence.changed',
+      JSON.stringify({ userId: 'u1', statut: 'absent' }),
     );
     expect(serverEmit).not.toHaveBeenCalled();
   });
-  it("disconnects when socket auth is null", async () => {
+  it('disconnects when socket auth is null', async () => {
     const client: any = {
       handshake: { auth: null },
       data: {},
@@ -625,7 +625,7 @@ describe("MessagesGateway", () => {
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("disconnects when socket token is not a string", async () => {
+  it('disconnects when socket token is not a string', async () => {
     const client: any = {
       handshake: { auth: { token: 123 } },
       data: {},
@@ -637,9 +637,9 @@ describe("MessagesGateway", () => {
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it("disconnects when socket token is empty", async () => {
+  it('disconnects when socket token is empty', async () => {
     const client: any = {
-      handshake: { auth: { token: "" } },
+      handshake: { auth: { token: '' } },
       data: {},
       disconnect: jest.fn(),
       join: jest.fn(),
@@ -649,20 +649,20 @@ describe("MessagesGateway", () => {
   });
 
   it.each([
-    ["null payload", "null"],
+    ['null payload', 'null'],
     [
-      "invalid id",
-      JSON.stringify({ id: 123, senderId: "u1", recipientId: "u2" }),
+      'invalid id',
+      JSON.stringify({ id: 123, senderId: 'u1', recipientId: 'u2' }),
     ],
     [
-      "invalid sender",
-      JSON.stringify({ id: "m1", senderId: 123, recipientId: "u2" }),
+      'invalid sender',
+      JSON.stringify({ id: 'm1', senderId: 123, recipientId: 'u2' }),
     ],
     [
-      "invalid recipient",
-      JSON.stringify({ id: "m1", senderId: "u1", recipientId: 123 }),
+      'invalid recipient',
+      JSON.stringify({ id: 'm1', senderId: 'u1', recipientId: 123 }),
     ],
-  ])("ignores %s from Redis", async (_name, payload) => {
+  ])('ignores %s from Redis', async (_name, payload) => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -670,177 +670,177 @@ describe("MessagesGateway", () => {
       },
     );
     await gateway.afterInit();
-    handler("private-message.created", payload);
+    handler('private-message.created', payload);
     expect(emit).not.toHaveBeenCalled();
   });
 
   // --- room-message.join / leave / send ---
 
-  it("refuses joining a room when the socket has no authenticated user", async () => {
+  it('refuses joining a room when the socket has no authenticated user', async () => {
     const client: any = { data: {} };
-    await expect(gateway.joinRoom(client, { roomId: "r1" })).rejects.toThrow(
-      "Utilisateur non authentifié",
+    await expect(gateway.joinRoom(client, { roomId: 'r1' })).rejects.toThrow(
+      'Utilisateur non authentifié',
     );
     expect(rooms.verifierAcces).not.toHaveBeenCalled();
   });
 
-  it("refuses joining a room the caller is not a member of", async () => {
+  it('refuses joining a room the caller is not a member of', async () => {
     rooms.verifierAcces.mockResolvedValue({ peutLire: false });
-    const client: any = { data: { userId: "u1" }, join: jest.fn() };
+    const client: any = { data: { userId: 'u1' }, join: jest.fn() };
 
-    await expect(gateway.joinRoom(client, { roomId: "r1" })).rejects.toThrow(
-      "Vous devez être membre du salon pour rejoindre ce salon",
+    await expect(gateway.joinRoom(client, { roomId: 'r1' })).rejects.toThrow(
+      'Vous devez être membre du salon pour rejoindre ce salon',
     );
     expect(client.join).not.toHaveBeenCalled();
   });
 
   it("joins the room's Socket.IO room for a member", async () => {
-    rooms.verifierAcces.mockResolvedValue({ peutLire: true, serveurId: "s1" });
+    rooms.verifierAcces.mockResolvedValue({ peutLire: true, serveurId: 's1' });
     const client: any = {
-      data: { userId: "u1", role: "admin", salons: { r0: "s0" } },
+      data: { userId: 'u1', role: 'admin', salons: { r0: 's0' } },
       join: jest.fn().mockResolvedValue(undefined),
     };
 
-    await expect(gateway.joinRoom(client, { roomId: "r1" })).resolves.toEqual({
+    await expect(gateway.joinRoom(client, { roomId: 'r1' })).resolves.toEqual({
       joined: true,
     });
-    expect(client.join).toHaveBeenCalledWith("room:r1");
+    expect(client.join).toHaveBeenCalledWith('room:r1');
     // Mémorisé pour pouvoir retirer le socket s'il perd l'accès.
-    expect(client.data.salons).toEqual({ r0: "s0", r1: "s1" });
-    expect(rooms.verifierAcces).toHaveBeenCalledWith("r1", {
-      id: "u1",
-      role: "admin",
+    expect(client.data.salons).toEqual({ r0: 's0', r1: 's1' });
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', {
+      id: 'u1',
+      role: 'admin',
     });
   });
 
   it("leaves the room's Socket.IO room", async () => {
     const client: any = {
-      data: { salons: { r1: "s1", r2: "s1" } },
+      data: { salons: { r1: 's1', r2: 's1' } },
       leave: jest.fn().mockResolvedValue(undefined),
     };
 
-    await expect(gateway.leaveRoom(client, { roomId: "r1" })).resolves.toEqual({
+    await expect(gateway.leaveRoom(client, { roomId: 'r1' })).resolves.toEqual({
       left: true,
     });
-    expect(client.leave).toHaveBeenCalledWith("room:r1");
-    expect(client.data.salons).toEqual({ r2: "s1" });
+    expect(client.leave).toHaveBeenCalledWith('room:r1');
+    expect(client.data.salons).toEqual({ r2: 's1' });
   });
 
-  it("leaves a room even if no room was remembered on the socket", async () => {
+  it('leaves a room even if no room was remembered on the socket', async () => {
     const client: any = {
       data: {},
       leave: jest.fn().mockResolvedValue(undefined),
     };
 
-    await expect(gateway.leaveRoom(client, { roomId: "r1" })).resolves.toEqual({
+    await expect(gateway.leaveRoom(client, { roomId: 'r1' })).resolves.toEqual({
       left: true,
     });
   });
 
-  it("refuses sending a room message when the socket has no authenticated user", async () => {
+  it('refuses sending a room message when the socket has no authenticated user', async () => {
     const client: any = { data: {} };
     await expect(
-      gateway.sendRoom(client, { roomId: "r1", content: "x" }),
-    ).rejects.toThrow("Utilisateur non authentifié");
+      gateway.sendRoom(client, { roomId: 'r1', content: 'x' }),
+    ).rejects.toThrow('Utilisateur non authentifié');
     expect(roomMessages.create).not.toHaveBeenCalled();
   });
 
-  it("delegates sending a room message using the authenticated socket user", async () => {
-    roomMessages.create.mockResolvedValue({ id: "m1" });
-    const client: any = { data: { userId: "u1" } };
+  it('delegates sending a room message using the authenticated socket user', async () => {
+    roomMessages.create.mockResolvedValue({ id: 'm1' });
+    const client: any = { data: { userId: 'u1' } };
 
-    await gateway.sendRoom(client, { roomId: "r1", content: "x" });
+    await gateway.sendRoom(client, { roomId: 'r1', content: 'x' });
     // Sans rôle mémorisé (cas théorique) : "utilisateur", le moins privilégié.
     expect(roomMessages.create).toHaveBeenCalledWith(
-      { id: "u1", role: "utilisateur" },
-      "r1",
-      { content: "x" },
+      { id: 'u1', role: 'utilisateur' },
+      'r1',
+      { content: 'x' },
     );
   });
 
   // --- typing ---
 
-  it("refuses a typing event when the socket has no authenticated user", () => {
+  it('refuses a typing event when the socket has no authenticated user', () => {
     const client: any = { data: {}, to: jest.fn() };
     expect(() =>
-      gateway.typing(client, { scope: "room", targetId: "r1", isTyping: true }),
-    ).toThrow("Utilisateur non authentifié");
+      gateway.typing(client, { scope: 'room', targetId: 'r1', isTyping: true }),
+    ).toThrow('Utilisateur non authentifié');
     expect(client.to).not.toHaveBeenCalled();
   });
 
-  it("relays a room-scoped typing event to the room", () => {
+  it('relays a room-scoped typing event to the room', () => {
     const typingEmit = jest.fn();
     const client: any = {
-      data: { userId: "u1" },
-      rooms: new Set(["room:r1"]),
+      data: { userId: 'u1' },
+      rooms: new Set(['room:r1']),
       to: jest.fn(() => ({ emit: typingEmit })),
     };
 
-    gateway.typing(client, { scope: "room", targetId: "r1", isTyping: true });
+    gateway.typing(client, { scope: 'room', targetId: 'r1', isTyping: true });
 
-    expect(client.to).toHaveBeenCalledWith("room:r1");
-    expect(typingEmit).toHaveBeenCalledWith("typing", {
-      userId: "u1",
-      scope: "room",
-      targetId: "r1",
+    expect(client.to).toHaveBeenCalledWith('room:r1');
+    expect(typingEmit).toHaveBeenCalledWith('typing', {
+      userId: 'u1',
+      scope: 'room',
+      targetId: 'r1',
       isTyping: true,
     });
   });
 
-  it("ignores a room-scoped typing event for a room the socket has not joined", () => {
+  it('ignores a room-scoped typing event for a room the socket has not joined', () => {
     const client: any = {
-      data: { userId: "u1" },
-      rooms: new Set(["user:u1"]),
+      data: { userId: 'u1' },
+      rooms: new Set(['user:u1']),
       to: jest.fn(),
     };
 
-    gateway.typing(client, { scope: "room", targetId: "r1", isTyping: true });
+    gateway.typing(client, { scope: 'room', targetId: 'r1', isTyping: true });
 
     expect(client.to).not.toHaveBeenCalled();
   });
 
   it("limite 'typing' : même état répété ignoré, changement toujours relayé", () => {
     jest.useFakeTimers();
-    jest.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     try {
       const typingEmit = jest.fn();
       const client: any = {
-        data: { userId: "u1" },
+        data: { userId: 'u1' },
         to: jest.fn(() => ({ emit: typingEmit })),
       };
       const saisie = (targetId: string, isTyping: boolean) =>
-        gateway.typing(client, { scope: "dm", targetId, isTyping });
+        gateway.typing(client, { scope: 'dm', targetId, isTyping });
 
-      saisie("u2", true);
-      saisie("u2", true); // frappe suivante, même état : ignorée
-      saisie("u3", true); // autre cible : indépendante
+      saisie('u2', true);
+      saisie('u2', true); // frappe suivante, même état : ignorée
+      saisie('u3', true); // autre cible : indépendante
       expect(typingEmit).toHaveBeenCalledTimes(2);
 
-      saisie("u2", false); // changement d'état : relayé tout de suite
+      saisie('u2', false); // changement d'état : relayé tout de suite
       expect(typingEmit).toHaveBeenCalledTimes(3);
 
       jest.advanceTimersByTime(DELAI_MIN_SAISIE_MS);
-      saisie("u2", false); // fenêtre écoulée : relayé à nouveau
+      saisie('u2', false); // fenêtre écoulée : relayé à nouveau
       expect(typingEmit).toHaveBeenCalledTimes(4);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it("relays a DM-scoped typing event to the target user", () => {
+  it('relays a DM-scoped typing event to the target user', () => {
     const typingEmit = jest.fn();
     const client: any = {
-      data: { userId: "u1" },
+      data: { userId: 'u1' },
       to: jest.fn(() => ({ emit: typingEmit })),
     };
 
-    gateway.typing(client, { scope: "dm", targetId: "u2", isTyping: false });
+    gateway.typing(client, { scope: 'dm', targetId: 'u2', isTyping: false });
 
-    expect(client.to).toHaveBeenCalledWith("user:u2");
-    expect(typingEmit).toHaveBeenCalledWith("typing", {
-      userId: "u1",
-      scope: "dm",
-      targetId: "u2",
+    expect(client.to).toHaveBeenCalledWith('user:u2');
+    expect(typingEmit).toHaveBeenCalledWith('typing', {
+      userId: 'u1',
+      scope: 'dm',
+      targetId: 'u2',
       isTyping: false,
     });
   });
@@ -848,128 +848,128 @@ describe("MessagesGateway", () => {
   // --- révocation des salons dont l'accès est perdu ---
 
   it.each([
-    [{ raison: "expulse", cibleId: "u3" }, ["u3"]],
-    [{ raison: "membres", cibleId: "u3" }, ["u3"]],
-    [{ raison: "membres", cibleId: null }, []],
-    [{ raison: "salons", cibleId: null }, ["u1", "u3"]],
-    [{ raison: "supprime", cibleId: null }, ["u1", "u3"]],
-    [{ raison: "modifie", cibleId: null }, []],
-    [{ raison: "invitation", cibleId: "u9" }, []],
-  ])("revalidates the right users for %o", (partiel, attendu) => {
+    [{ raison: 'expulse', cibleId: 'u3' }, ['u3']],
+    [{ raison: 'membres', cibleId: 'u3' }, ['u3']],
+    [{ raison: 'membres', cibleId: null }, []],
+    [{ raison: 'salons', cibleId: null }, ['u1', 'u3']],
+    [{ raison: 'supprime', cibleId: null }, ['u1', 'u3']],
+    [{ raison: 'modifie', cibleId: null }, []],
+    [{ raison: 'invitation', cibleId: 'u9' }, []],
+  ])('revalidates the right users for %o', (partiel, attendu) => {
     expect(
       utilisateursARevalider({
-        serveurId: "s1",
-        utilisateurIds: ["u1", "u3"],
+        serveurId: 's1',
+        utilisateurIds: ['u1', 'u3'],
         ...partiel,
       } as any),
     ).toEqual(attendu);
   });
 
   it("removes an expelled member from the server's rooms only", async () => {
-    const socket = socketDansSalons({ r1: "s1", r2: "s2" });
+    const socket = socketDansSalons({ r1: 's1', r2: 's2' });
     socketsParUtilisateur.u3 = [socket];
     rooms.verifierAcces.mockResolvedValue({ peutLire: false });
     const publier = await brancherRedis();
 
-    publier("serveur.change", {
-      serveurId: "s1",
-      raison: "expulse",
-      cibleId: "u3",
-      utilisateurIds: ["u1", "u3"],
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'expulse',
+      cibleId: 'u3',
+      utilisateurIds: ['u1', 'u3'],
     });
     await vider();
 
     // Sans rôle mémorisé : "utilisateur", le moins privilégié.
     expect(rooms.verifierAcces).toHaveBeenCalledTimes(1);
-    expect(rooms.verifierAcces).toHaveBeenCalledWith("r1", {
-      id: "u3",
-      role: "utilisateur",
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', {
+      id: 'u3',
+      role: 'utilisateur',
     });
-    expect(socket.leave).toHaveBeenCalledWith("room:r1");
-    expect(socket.emit).toHaveBeenCalledWith("room-message.revoked", {
-      roomId: "r1",
+    expect(socket.leave).toHaveBeenCalledWith('room:r1');
+    expect(socket.emit).toHaveBeenCalledWith('room-message.revoked', {
+      roomId: 'r1',
     });
-    expect(socket.data.salons).toEqual({ r2: "s2" });
+    expect(socket.data.salons).toEqual({ r2: 's2' });
   });
 
-  it("keeps a socket in a room it can still read", async () => {
-    const socket = socketDansSalons({ r1: "s1" }, "admin");
+  it('keeps a socket in a room it can still read', async () => {
+    const socket = socketDansSalons({ r1: 's1' }, 'admin');
     socketsParUtilisateur.u3 = [socket];
     rooms.verifierAcces.mockResolvedValue({ peutLire: true });
     const publier = await brancherRedis();
 
-    publier("serveur.change", {
-      serveurId: "s1",
-      raison: "membres",
-      cibleId: "u3",
-      utilisateurIds: ["u1", "u3"],
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'membres',
+      cibleId: 'u3',
+      utilisateurIds: ['u1', 'u3'],
     });
     await vider();
 
-    expect(rooms.verifierAcces).toHaveBeenCalledWith("r1", {
-      id: "u3",
-      role: "admin",
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', {
+      id: 'u3',
+      role: 'admin',
     });
     expect(socket.leave).not.toHaveBeenCalled();
-    expect(socket.data.salons).toEqual({ r1: "s1" });
+    expect(socket.data.salons).toEqual({ r1: 's1' });
   });
 
-  it("removes the socket when the access check fails (deleted room, Room-Service down)", async () => {
-    const socket = socketDansSalons({ r1: "s1" });
+  it('removes the socket when the access check fails (deleted room, Room-Service down)', async () => {
+    const socket = socketDansSalons({ r1: 's1' });
     socketsParUtilisateur.u1 = [socket];
-    rooms.verifierAcces.mockRejectedValue(new Error("indisponible"));
+    rooms.verifierAcces.mockRejectedValue(new Error('indisponible'));
     const publier = await brancherRedis();
 
-    publier("serveur.change", {
-      serveurId: "s1",
-      raison: "salons",
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'salons',
       cibleId: null,
-      utilisateurIds: ["u1"],
+      utilisateurIds: ['u1'],
     });
     await vider();
 
-    expect(socket.leave).toHaveBeenCalledWith("room:r1");
+    expect(socket.leave).toHaveBeenCalledWith('room:r1');
     expect(socket.data.salons).toEqual({});
   });
 
   it("removes every socket from a deleted server's rooms without asking Room-Service", async () => {
-    const socket = socketDansSalons({ r1: "s1", r2: "s1" });
+    const socket = socketDansSalons({ r1: 's1', r2: 's1' });
     socketsParUtilisateur.u1 = [socket, socketDansSalons(undefined)];
     const publier = await brancherRedis();
 
-    publier("serveur.change", {
-      serveurId: "s1",
-      raison: "supprime",
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'supprime',
       cibleId: null,
-      utilisateurIds: ["u1"],
+      utilisateurIds: ['u1'],
     });
     await vider();
 
     expect(rooms.verifierAcces).not.toHaveBeenCalled();
-    expect(socket.leave).toHaveBeenCalledWith("room:r1");
-    expect(socket.leave).toHaveBeenCalledWith("room:r2");
+    expect(socket.leave).toHaveBeenCalledWith('room:r1');
+    expect(socket.leave).toHaveBeenCalledWith('room:r2');
     expect(socket.data.salons).toEqual({});
   });
 
-  it("logs a revocation failure instead of crashing", async () => {
+  it('logs a revocation failure instead of crashing', async () => {
     const logger = jest
-      .spyOn((gateway as any).logger, "error")
+      .spyOn((gateway as any).logger, 'error')
       .mockImplementation(() => undefined);
     (gateway as any).server.in = jest.fn(() => ({
-      fetchSockets: jest.fn().mockRejectedValue(new Error("boum")),
+      fetchSockets: jest.fn().mockRejectedValue(new Error('boum')),
     }));
     const publier = await brancherRedis();
 
-    publier("serveur.change", {
-      serveurId: "s1",
-      raison: "expulse",
-      cibleId: "u3",
-      utilisateurIds: ["u3"],
+    publier('serveur.change', {
+      serveurId: 's1',
+      raison: 'expulse',
+      cibleId: 'u3',
+      utilisateurIds: ['u3'],
     });
     await vider();
 
     expect(logger).toHaveBeenCalledWith(
-      expect.stringContaining("Révocation des salons impossible"),
+      expect.stringContaining('Révocation des salons impossible'),
     );
   });
 });
