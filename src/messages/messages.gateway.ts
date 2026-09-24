@@ -231,10 +231,15 @@ export class MessagesGateway
     string,
     { dernierEnvoi: number; envoiDiffere?: ReturnType<typeof setTimeout> }
   >();
-  // Limite de `presence.update` par socket (voir DELAI_MIN_PRESENCE_MS).
+  // Limite de `presence.update` par socket (voir DELAI_MIN_PRESENCE_MS) ;
+  // `statut` : le dernier demandé, celui que l'envoi différé diffusera.
   private readonly limitesPresence = new Map<
     string,
-    { dernierEnvoi: number; envoiDiffere?: ReturnType<typeof setTimeout> }
+    {
+      dernierEnvoi: number;
+      statut: PresenceEvent['statut'];
+      envoiDiffere?: ReturnType<typeof setTimeout>;
+    }
   >();
 
   @WebSocketServer()
@@ -459,22 +464,24 @@ export class MessagesGateway
     const maintenant = Date.now();
     const limite = this.limitesPresence.get(client.id);
     if (!limite || maintenant - limite.dernierEnvoi >= DELAI_MIN_PRESENCE_MS) {
-      this.limitesPresence.set(client.id, { dernierEnvoi: maintenant });
+      this.limitesPresence.set(client.id, {
+        dernierEnvoi: maintenant,
+        statut: dto.statut,
+      });
       await this.redis.publish(PRESENCE_CHANNEL, {
         userId,
         statut: dto.statut,
       });
       return { ok: true };
     }
-    // Trop tôt : un seul envoi différé, avec l'état du socket à ce moment-là.
+    // Trop tôt : un seul envoi différé, avec le dernier état demandé.
+    limite.statut = dto.statut;
     limite.envoiDiffere ??= setTimeout(
       () => {
         limite.envoiDiffere = undefined;
         limite.dernierEnvoi = Date.now();
-        const statut = client.data.presence;
-        if (!statut) return;
         this.redis
-          .publish(PRESENCE_CHANNEL, { userId, statut })
+          .publish(PRESENCE_CHANNEL, { userId, statut: limite.statut })
           .catch((erreur) => {
             this.logger.warn(`Présence non diffusée: ${String(erreur)}`);
           });
