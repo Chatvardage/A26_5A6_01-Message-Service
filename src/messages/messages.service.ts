@@ -30,6 +30,9 @@ export class MessagesService {
     dto: CreateMessageDto,
     jeton: string,
   ): Promise<PrivateMessage> {
+    // En premier, volontairement : une tentative refusée (à soi-même,
+    // destinataire inconnu) compte aussi dans la limite, sinon un script
+    // pourrait sonder Authentification sans limite via cette route.
     this.limiteEnvoi.verifier(senderId);
     if (dto.recipientId === senderId) {
       throw new BadRequestException(
@@ -38,12 +41,12 @@ export class MessagesService {
     }
     await this.destinataires.exigerExistant(dto.recipientId, jeton);
 
-    // 1) PostgreSQL is the source of truth.
+    // 1) PostgreSQL fait foi.
     const message = await this.prisma.privateMessage.create({
       data: { senderId, recipientId: dto.recipientId, content: dto.content },
     });
 
-    // 2) Only after a successful DB write do we publish the event.
+    // 2) L'événement n'est publié qu'après l'écriture réussie en base.
     await this.redis.publish('private-message.created', message);
     return message;
   }

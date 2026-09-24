@@ -8,19 +8,26 @@ Le chemin obligatoire est :
 
 Cela garantit que les messages de salon envoyés par REST et ceux envoyés par WebSocket utilisent exactement le même mécanisme de diffusion temps réel.
 
-## Appartenance au salon
+## Droits d'accès au salon
 
-Message-Service ne connaît pas les membres d'un salon : cette information appartient à `A26_5A6_01-Room-Service`. Avant toute écriture ou lecture, `RoomsClientService.getRoom(roomId)` appelle `GET {ROOM_SERVICE_URL}/api/rooms/:roomId` et le résultat contenant `membreIds` sert à valider l'appartenance :
+Message-Service ne connaît ni les membres ni les règles d'un salon : Room-Service fait foi. Avant toute écriture ou lecture, `RoomsClientService.verifierAcces(roomId, acteur)` appelle la route interne `GET {ROOM_SERVICE_URL}/api/internal/channels/:roomId/access/:userId?role=<rôle global>` (en-tête `x-internal-token` = `INTERNAL_SERVICE_TOKEN`), qui renvoie :
 
-- salon introuvable (404 de Room-Service) -> `NotFoundException` (404)
-- appelant absent de `membreIds` -> `ForbiddenException` (403)
-- Room-Service injoignable, en timeout, ou 5xx -> `ServiceUnavailableException` (503)
-- réponse 2xx au JSON invalide/inattendu -> `BadGatewayException` (502)
+```json
+{ "salonId": "…", "serveurId": "…", "estMembre": true, "peutLire": true, "peutEcrire": false, "peutModerer": false }
+```
+
+- `peutLire` faux -> `ForbiddenException` (403) ; `peutEcrire` faux à l'envoi (ex. #annonces) -> 403 ;
+- salon introuvable (404 de Room-Service) -> `NotFoundException` (404) ;
+- Room-Service injoignable, en timeout ou en erreur -> `ServiceUnavailableException` (503) ;
+- réponse au JSON invalide ou incomplet -> `BadGatewayException` (502). `peutModerer` absent (Room-Service plus ancien) vaut `false`.
+
+Un accès obtenu est mémorisé `ROOM_ACCESS_CACHE_TTL_MS` (10 s par défaut) ; tout `serveur.change` vide les accès à ce serveur. Les erreurs ne sont jamais mémorisées.
 
 ## Création
 
 `RoomMessagesService.create()` :
-- appelle Room-Service et vérifie l'appartenance de l'auteur au salon;
+- applique la limite d'envoi (10 messages / 10 s par utilisateur, DM compris) ;
+- demande l'accès à Room-Service et exige `peutLire` et `peutEcrire` ;
 - écrit dans `RoomMessage`;
 - attend la réussite de Prisma;
 - publie `room-message.created`.
@@ -66,7 +73,30 @@ Même principe que pour les DM, avec :
 - `room-message.updated`
 - `room-message.deleted`
 
-Seul l'auteur original du message peut le modifier ou le supprimer (vérifié en base, pas via Room-Service — un membre ayant quitté le salon depuis reste l'auteur de ses messages passés). Pour une suppression, l'événement contient `{ id, roomId, authorId }` (pas de `content`), afin de savoir vers quelle room Socket.IO diffuser l'événement.
+L'appelant doit toujours pouvoir lire le salon (`peutLire`) : un membre expulsé ne modifie ni ne supprime plus ses anciens messages.
+
+- **Modifier** : réservé à l'auteur (vérifié en base).
+- **Supprimer** : l'auteur, ou un **modérateur du serveur** (propriétaire, admin global compris), selon `peutModerer` renvoyé par Room-Service.
+
+Pour une suppression, l'événement contient `{ id, roomId, authorId }` (pas de `content`), afin de savoir vers quelle room Socket.IO diffuser l'événement.
+
+## Effacements en masse (routes internes) : sans temps réel
+
+`POST /api/internal/salons-supprimes` (salons supprimés, appelée par Room-Service) et `DELETE /api/internal/users/:userId` (compte supprimé, appelée par Authentification) effacent les messages **sans publier d'événement Redis**, par choix :
+
+- salon ou serveur supprimé : ses sockets ont déjà quitté `room:<roomId>` (`room-message.revoked`, voir « Perte d'accès ») et le client retire le salon à la réception de `serveur.change` ; il n'y a plus personne à prévenir ;
+- compte supprimé : ses messages peuvent être des milliers ; publier un `room-message.deleted` par message inonderait Redis et les clients. Les clients déjà ouverts les voient disparaître au prochain chargement de l'historique.
+
+## Événements trop fréquents
+
+Chaque événement client coûteux a une limite par socket ; la réponse à un dépassement dépend de ce que le client attend :
+
+| Événement | Limite | Au-delà |
+| --- | --- | --- |
+| `typing` | même état vers la même cible : 1 / s | ignoré (un changement d'état passe toujours) |
+| `presence.update`, `profil.update` | 1 / s, 1 / 5 s | **différé** : le dernier état part à la fin de la fenêtre (jamais après la déconnexion pour la présence) — perdre la dernière valeur laisserait les autres clients sur un état faux |
+| `presence.suivre` | 1 / s | **refusé** (`WsException`) : c'est une requête avec accusé de réception ; le client regroupe déjà ses demandes et renvoie la liste complète à la suivante, rien n'est perdu |
+| envoi de message (REST ou Socket.IO) | 10 / 10 s par utilisateur | 429 |
 
 ## Indicateur de frappe (typing)
 

@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/jwt-auth.service';
 
-// Borne la mémoire du cache : au-delà, l'entrée la plus ancienne est oubliée.
+// Borne la mémoire du cache : au-delà, l'entrée AJOUTÉE la première est
+// oubliée (FIFO, pas LRU : une lecture ne la rajeunit pas). Suffisant avec
+// une durée de vie courte : une entrée expire bien avant d'être évincée,
+// sauf avec plus de 10 000 entrées vivantes à la fois.
 export const TAILLE_MAX_CACHE_ACCES = 10_000;
 
 /** Durée de mémorisation d'un accès (ms), 10 s par défaut, 0 = sans cache. */
@@ -109,7 +112,7 @@ export class RoomsClientService {
     try {
       response = await fetch(
         `${baseUrl}/api/internal/channels/${encodeURIComponent(roomId)}` +
-          `/access/${encodeURIComponent(acteur.id)}?role=${acteur.role}`,
+          `/access/${encodeURIComponent(acteur.id)}?role=${encodeURIComponent(acteur.role)}`,
         {
           headers: { 'x-internal-token': jeton },
           signal: AbortSignal.timeout(timeoutMs),

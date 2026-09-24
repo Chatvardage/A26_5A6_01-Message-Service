@@ -39,12 +39,12 @@ export class RoomMessagesService {
       );
     }
 
-    // 1) PostgreSQL is the source of truth.
+    // 1) PostgreSQL fait foi.
     const message = await this.prisma.roomMessage.create({
       data: { roomId, authorId: acteur.id, content: dto.content },
     });
 
-    // 2) Only after a successful DB write do we publish the event.
+    // 2) L'événement n'est publié qu'après l'écriture réussie en base.
     await this.redis.publish('room-message.created', message);
     return message;
   }

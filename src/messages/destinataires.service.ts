@@ -9,7 +9,9 @@ import { lireConfigClientAuth } from '../partage/client-auth';
 
 /** Durée pendant laquelle un destinataire existant est mémorisé. */
 export const DUREE_CACHE_DESTINATAIRE_MS = 10 * 60_000;
-// Borne la mémoire du cache : au-delà, l'entrée la plus ancienne est oubliée.
+// Borne la mémoire du cache : au-delà, l'entrée AJOUTÉE la première est
+// oubliée (FIFO, pas LRU : une lecture ne la rajeunit pas). Sans gravité :
+// une entrée évincée coûte seulement un nouvel appel à Authentification.
 export const TAILLE_MAX_CACHE_DESTINATAIRES = 10_000;
 
 /**

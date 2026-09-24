@@ -11,6 +11,8 @@ Cela garantit que les messages envoyés par REST et ceux envoyés par WebSocket 
 ## Création
 
 `MessagesService.create()` :
+- applique la limite d'envoi (10 messages / 10 s par utilisateur, salons compris), avant toute autre vérification : une tentative refusée compte aussi ;
+- refuse un message à soi-même (400) et un destinataire inexistant (404, vérifié auprès d'Authentification par `GET /api/users/lookup` avec le jeton de l'expéditeur, mémorisé 10 min) ;
 - écrit dans `PrivateMessage`;
 - attend la réussite de Prisma;
 - publie `private-message.created`.
@@ -31,6 +33,8 @@ Même principe avec :
 - `private-message.deleted`
 
 Pour une suppression, l'événement contient encore `senderId` et `recipientId`, même si la ligne vient d'être supprimée, afin de savoir quels clients doivent recevoir l'événement.
+
+La suppression d'un compte (`DELETE /api/internal/users/:userId`, appelée par Authentification) efface ses conversations **sans événement temps réel** (voir `docs/TEMPS_REEL_SALONS.md`, « Effacements en masse »).
 
 ## Authentification C2
 
