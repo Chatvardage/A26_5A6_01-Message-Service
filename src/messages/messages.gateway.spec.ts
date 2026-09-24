@@ -1,10 +1,15 @@
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   DELAI_MIN_PROFIL_MS,
   DELAI_MIN_SAISIE_MS,
   isAllowedOrigin,
   MessagesGateway,
   utilisateursARevalider,
+  INTERVALLE_REVALIDATION_MS,
 } from './messages.gateway';
 
 describe('MessagesGateway', () => {
@@ -232,11 +237,119 @@ describe('MessagesGateway', () => {
       handshake: { auth: {} },
       data: {},
       disconnect: jest.fn(),
+      emit: jest.fn(),
       join: jest.fn(),
     };
     await gateway.handleConnection(client);
     expect(client.disconnect).toHaveBeenCalledWith(true);
     expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it('signals a revoked session when the JWT is refused at connection', async () => {
+    jwt.verifyToken.mockRejectedValue(new UnauthorizedException());
+    const client: any = {
+      handshake: { auth: { token: 'revoque' } },
+      data: {},
+      disconnect: jest.fn(),
+      emit: jest.fn(),
+      join: jest.fn(),
+    };
+    await gateway.handleConnection(client);
+    expect(client.emit).toHaveBeenCalledWith('session.revoquee');
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('does not signal a revoked session when Auth is unavailable', async () => {
+    jwt.verifyToken.mockRejectedValue(new ServiceUnavailableException());
+    const client: any = {
+      handshake: { auth: { token: 'jwt' } },
+      data: {},
+      disconnect: jest.fn(),
+      emit: jest.fn(),
+      join: jest.fn(),
+    };
+    await gateway.handleConnection(client);
+    expect(client.emit).not.toHaveBeenCalled();
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  describe('revalidation des sockets ouverts', () => {
+    const socket = (userId: string | undefined, token = 'jwt') => ({
+      id: `s-${userId}`,
+      handshake: { auth: { token } },
+      data: { userId, role: 'utilisateur' },
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+    });
+    const brancher = (sockets: any[]) => {
+      (gateway as any).server = {
+        fetchSockets: jest.fn().mockResolvedValue(sockets),
+      };
+    };
+
+    it('déconnecte un socket dont le jeton est refusé', async () => {
+      const revoque = socket('u1', 'revoque');
+      const valide = socket('u2', 'valide');
+      brancher([revoque, valide]);
+      jwt.verifyToken.mockImplementation(async (token: string) => {
+        if (token === 'revoque') throw new UnauthorizedException();
+        return { id: 'u2', role: 'admin' };
+      });
+
+      await gateway.revaliderSockets();
+
+      expect(revoque.emit).toHaveBeenCalledWith('session.revoquee');
+      expect(revoque.disconnect).toHaveBeenCalledWith(true);
+      expect(valide.disconnect).not.toHaveBeenCalled();
+      // Rôle global mis à jour pour les droits des salons.
+      expect(valide.data.role).toBe('admin');
+    });
+
+    it('déconnecte aussi sur un refus 403 ou un jeton absent', async () => {
+      const interdit = socket('u1');
+      const sansJeton = { ...socket('u2'), handshake: { auth: {} } };
+      brancher([interdit, sansJeton]);
+      jwt.verifyToken.mockRejectedValue(new ForbiddenException());
+
+      await gateway.revaliderSockets();
+
+      expect(interdit.disconnect).toHaveBeenCalledWith(true);
+      expect(sansJeton.disconnect).toHaveBeenCalledWith(true);
+    });
+
+    it('garde les sockets si Auth est indisponible, ignore ceux pas encore authentifiés', async () => {
+      const ouvert = socket('u1');
+      const enCours = socket(undefined);
+      brancher([ouvert, enCours]);
+      jwt.verifyToken.mockRejectedValue(new ServiceUnavailableException());
+
+      await gateway.revaliderSockets();
+
+      expect(ouvert.disconnect).not.toHaveBeenCalled();
+      expect(jwt.verifyToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('revalide à intervalle régulier après afterInit, arrêté à la destruction', async () => {
+      jest.useFakeTimers();
+      try {
+        redis.subscribe.mockResolvedValue(undefined);
+        const revalider = jest
+          .spyOn(gateway, 'revaliderSockets')
+          .mockRejectedValueOnce(new Error('panne'))
+          .mockResolvedValue(undefined);
+        await gateway.afterInit();
+
+        jest.advanceTimersByTime(INTERVALLE_REVALIDATION_MS);
+        await Promise.resolve();
+        expect(revalider).toHaveBeenCalledTimes(1);
+
+        gateway.onModuleDestroy();
+        jest.advanceTimersByTime(INTERVALLE_REVALIDATION_MS * 2);
+        expect(revalider).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   it('disconnects when JWT verification fails', async () => {
@@ -246,6 +359,7 @@ describe('MessagesGateway', () => {
       handshake: { auth: { token: 'bad' } },
       data: {},
       disconnect: jest.fn(),
+      emit: jest.fn(),
       join: jest.fn(),
     };
     await gateway.handleConnection(client);
@@ -259,6 +373,7 @@ describe('MessagesGateway', () => {
       handshake: { auth: { token: 'bad' } },
       data: {},
       disconnect: jest.fn(),
+      emit: jest.fn(),
       join: jest.fn(),
     };
     await gateway.handleConnection(client);
@@ -387,7 +502,8 @@ describe('MessagesGateway', () => {
     };
     await gateway.handleConnection(client);
     expect(fetchSockets).not.toHaveBeenCalled();
-    expect(client.emit).not.toHaveBeenCalled();
+    // Ni instantané de présence ni connexion.prete : seulement le refus.
+    expect(client.emit.mock.calls).toEqual([['session.revoquee']]);
   });
 
   it.each([new Error('adapter down'), 'failure'])(
@@ -620,6 +736,7 @@ describe('MessagesGateway', () => {
       handshake: { auth: null },
       data: {},
       disconnect: jest.fn(),
+      emit: jest.fn(),
       join: jest.fn(),
     };
     await gateway.handleConnection(client);
@@ -632,6 +749,7 @@ describe('MessagesGateway', () => {
       handshake: { auth: { token: 123 } },
       data: {},
       disconnect: jest.fn(),
+      emit: jest.fn(),
       join: jest.fn(),
     };
     await gateway.handleConnection(client);
@@ -644,6 +762,7 @@ describe('MessagesGateway', () => {
       handshake: { auth: { token: '' } },
       data: {},
       disconnect: jest.fn(),
+      emit: jest.fn(),
       join: jest.fn(),
     };
     await gateway.handleConnection(client);

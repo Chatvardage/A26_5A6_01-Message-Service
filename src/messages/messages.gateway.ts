@@ -1,4 +1,11 @@
-import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Logger,
+  OnModuleDestroy,
+  UnauthorizedException,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { PrivateMessage, RoomMessage } from '@prisma/client';
 import {
   ConnectedSocket,
@@ -63,6 +70,9 @@ interface EvenementsVersClient {
   // Le socket a été retiré de ce salon (accès perdu) : le client l'oublie et
   // le rejoindra de nouveau s'il le retrouve dans ses salons accessibles.
   'room-message.revoked': (payload: { roomId: string }) => void;
+  // Jeton refusé par Authentification (révoqué, expiré, compte supprimé) :
+  // le socket est ensuite déconnecté ; le client vérifie sa session.
+  'session.revoquee': () => void;
 }
 
 type AuthenticatedSocket = Socket<
@@ -116,6 +126,12 @@ export const DELAI_MIN_PROFIL_MS = 5000;
 // toujours relayé ; le même état répété vers la même cible, au plus une fois
 // par fenêtre (les destinataires gardent l'état jusqu'au changement).
 export const DELAI_MIN_SAISIE_MS = 1000;
+// Un socket n'était authentifié qu'à la connexion : un jeton révoqué (mot de
+// passe changé, compte supprimé) ou expiré continuait de recevoir messages
+// et présence tant que le socket restait ouvert. Chaque socket est donc
+// revalidé à cet intervalle (voir revaliderSockets) ; le cache du client
+// d'authentification limite le coût.
+export const INTERVALLE_REVALIDATION_MS = 60_000;
 
 interface EvenementServeur {
   serveurId: string;
@@ -169,6 +185,15 @@ export function isAllowedOrigin(
   callback(null, origin === undefined || allowedOrigins.includes(origin));
 }
 
+/** Refus d'Authentification (jeton absent, invalide, expiré ou révoqué). */
+function estJetonRefuse(erreur: unknown): boolean {
+  return (
+    erreur instanceof UnauthorizedException ||
+    erreur instanceof ForbiddenException ||
+    erreur instanceof WsException
+  );
+}
+
 @WebSocketGateway({
   namespace: '/messages',
   cors: {
@@ -178,9 +203,14 @@ export function isAllowedOrigin(
   },
 })
 export class MessagesGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   private readonly logger = new Logger(MessagesGateway.name);
+  private minuteurRevalidation?: ReturnType<typeof setInterval>;
   // Limite de `profil.update` par socket (voir DELAI_MIN_PROFIL_MS).
   private readonly limitesProfil = new Map<
     string,
@@ -209,6 +239,43 @@ export class MessagesGateway
       ],
       (channel, payload) => this.broadcastRedisEvent(channel, payload),
     );
+    this.minuteurRevalidation = setInterval(() => {
+      this.revaliderSockets().catch((erreur: unknown) => {
+        this.logger.error(`Revalidation des sockets: ${String(erreur)}`);
+      });
+    }, INTERVALLE_REVALIDATION_MS);
+    this.minuteurRevalidation.unref();
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.minuteurRevalidation);
+  }
+
+  /**
+   * Revalide le jeton de chaque socket authentifié. Jeton refusé : le socket
+   * reçoit `session.revoquee` puis est déconnecté. Authentification
+   * indisponible : le socket est gardé (une panne d'Auth ne doit pas couper
+   * tout le monde). Sinon, le rôle global est mis à jour (droits des salons).
+   */
+  async revaliderSockets(): Promise<void> {
+    const sockets =
+      (await this.server.fetchSockets()) as unknown as RemoteSocket<
+        EvenementsVersClient,
+        SocketData
+      >[];
+    for (const socket of sockets) {
+      // Encore en cours d'authentification (voir handleConnection).
+      if (!socket.data.userId) continue;
+      try {
+        const user = await this.jwt.verifyToken(this.readSocketToken(socket));
+        socket.data.role = user.role;
+      } catch (erreur) {
+        if (!estJetonRefuse(erreur)) continue;
+        this.logger.warn(`Jeton refusé, socket déconnecté [${socket.id}]`);
+        socket.emit('session.revoquee');
+        socket.disconnect(true);
+      }
+    }
   }
 
   async handleConnection(client: AuthenticatedSocket): Promise<void> {
@@ -224,6 +291,9 @@ export class MessagesGateway
         error instanceof Error ? error.message : 'erreur inconnue';
 
       this.logger.warn(`Connexion refusée [${client.id}]: ${message}`);
+      // Jeton refusé (et non Auth indisponible) : le client ne doit pas
+      // retenter indéfiniment avec ce jeton, il vérifie sa session.
+      if (estJetonRefuse(error)) client.emit('session.revoquee');
       client.disconnect(true);
       return;
     }
@@ -456,7 +526,7 @@ export class MessagesGateway
     return userId;
   }
 
-  private readSocketToken(client: AuthenticatedSocket): string {
+  private readSocketToken(client: { handshake: { auth: unknown } }): string {
     const auth: unknown = client.handshake.auth;
 
     if (typeof auth !== 'object' || auth === null || !('token' in auth)) {

@@ -193,6 +193,15 @@ La présence choisie est enregistrée par le client dans User-Config-Service
   authentifié »). Les clients attendent donc `connexion.prete` pour annoncer
   leur présence et rejoindre leurs salons — sinon, après une coupure
   réseau, un client restait « hors ligne » pour les autres ;
+- serveur → client : `session.revoquee` (sans données), juste avant de
+  déconnecter un socket dont le jeton est refusé par Auth-Service — à la
+  connexion, ou lors de la **revalidation** faite toutes les 60 s
+  (`INTERVALLE_REVALIDATION_MS`) : un jeton révoqué (mot de passe changé,
+  compte supprimé) ou expiré ne reçoit donc plus rien au bout d'au plus
+  ~70 s (revalidation + cache `AUTH_CACHE_TTL_MS`). Le client vérifie alors
+  sa session au lieu de se reconnecter en boucle. Si Auth-Service est
+  indisponible, les sockets sont gardés. La revalidation met aussi à jour le
+  rôle global du socket ;
 - client → serveur : `presence.update` `{ statut: 'en-ligne' | 'hors-ligne' }`,
   émis juste après l'enregistrement et à chaque `connexion.prete`.
   L'utilisateur est celui du socket : on ne peut annoncer que sa propre
