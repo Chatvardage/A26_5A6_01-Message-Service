@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { DestinatairesService } from '../messages/destinataires.service';
 import { MessagesService } from '../messages/messages.service';
 import { RoomMessagesService } from '../room-messages/room-messages.service';
 import {
@@ -13,9 +14,11 @@ describe('InternalDonneesController', () => {
     purgerSalons: jest.fn().mockResolvedValue(5),
     supprimerAuteur: jest.fn().mockResolvedValue(3),
   };
+  const destinataires = { oublier: jest.fn() };
   const controleur = new InternalDonneesController(
     messages as unknown as MessagesService,
     roomMessages as unknown as RoomMessagesService,
+    destinataires as unknown as DestinatairesService,
   );
 
   it('efface les messages des salons supprimés', async () => {
@@ -32,6 +35,8 @@ describe('InternalDonneesController', () => {
     });
     expect(messages.supprimerUtilisateur).toHaveBeenCalledWith('u1');
     expect(roomMessages.supprimerAuteur).toHaveBeenCalledWith('u1');
+    // Plus aucun nouveau message ne doit lui parvenir.
+    expect(destinataires.oublier).toHaveBeenCalledWith('u1');
   });
 
   it('valide la liste des salons (500 au plus)', async () => {

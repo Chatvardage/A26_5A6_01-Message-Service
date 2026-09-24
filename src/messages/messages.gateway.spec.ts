@@ -499,12 +499,16 @@ describe('MessagesGateway', () => {
 
   it('delegates sending using the authenticated socket user', async () => {
     messages.create.mockResolvedValue({ id: 'm1' });
-    const client: any = { data: { userId: 'u1' } };
+    const client: any = {
+      data: { userId: 'u1' },
+      handshake: { auth: { token: 'jwt-u1' } },
+    };
     await gateway.send(client, { recipientId: 'u2', content: 'x' });
-    expect(messages.create).toHaveBeenCalledWith('u1', {
-      recipientId: 'u2',
-      content: 'x',
-    });
+    expect(messages.create).toHaveBeenCalledWith(
+      'u1',
+      { recipientId: 'u2', content: 'x' },
+      'jwt-u1',
+    );
   });
 
   // --- présence en temps réel ---

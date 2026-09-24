@@ -8,6 +8,7 @@ import { InternalTokenGuard } from '../internal/internal-token.guard';
 import { RoomMessagesModule } from '../room-messages/room-messages.module';
 import { MessagesController } from './messages.controller';
 import { MessagesGateway } from './messages.gateway';
+import { DestinatairesService } from './destinataires.service';
 import { MessagesService } from './messages.service';
 
 @Module({
@@ -19,6 +20,7 @@ import { MessagesService } from './messages.service';
   ],
   providers: [
     MessagesService,
+    DestinatairesService,
     MessagesGateway,
     PrismaService,
     RedisService,

@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ArrayMaxSize, IsArray, IsString, MaxLength } from 'class-validator';
+import { DestinatairesService } from '../messages/destinataires.service';
 import { MessagesService } from '../messages/messages.service';
 import { RoomMessagesService } from '../room-messages/room-messages.service';
 import { InternalTokenGuard } from './internal-token.guard';
@@ -32,6 +33,7 @@ export class InternalDonneesController {
   constructor(
     private readonly messages: MessagesService,
     private readonly roomMessages: RoomMessagesService,
+    private readonly destinataires: DestinatairesService,
   ) {}
 
   @Post('salons-supprimes')
@@ -48,6 +50,8 @@ export class InternalDonneesController {
   async supprimerUtilisateur(
     @Param('userId') userId: string,
   ): Promise<{ messagesPrives: number; messagesSalons: number }> {
+    // Avant l'effacement : plus aucun nouveau message ne doit lui parvenir.
+    this.destinataires.oublier(userId);
     const [messagesPrives, messagesSalons] = await Promise.all([
       this.messages.supprimerUtilisateur(userId),
       this.roomMessages.supprimerAuteur(userId),

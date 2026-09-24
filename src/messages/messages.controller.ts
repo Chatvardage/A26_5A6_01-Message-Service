@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { PrivateMessage } from '@prisma/client';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { extraireJetonBearer } from '../partage/client-auth';
 import { ConversationSummary } from './dto/conversation-summary.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
@@ -28,7 +29,12 @@ export class MessagesController {
     @Req() req: AuthenticatedRequest,
     @Body() dto: CreateMessageDto,
   ): Promise<PrivateMessage> {
-    return this.messages.create(req.auth.id, dto);
+    return this.messages.create(
+      req.auth.id,
+      dto,
+      // Déjà validé par JwtAuthGuard.
+      extraireJetonBearer(req.headers.authorization),
+    );
   }
 
   @Get('history/:otherUserId')

@@ -3,7 +3,10 @@ import { MessagesController } from './messages.controller';
 describe('MessagesController', () => {
   let service: any;
   let controller: MessagesController;
-  const req: any = { auth: { id: 'u1' } };
+  const req: any = {
+    auth: { id: 'u1' },
+    headers: { authorization: 'Bearer jwt-u1' },
+  };
 
   beforeEach(() => {
     service = {
@@ -35,10 +38,11 @@ describe('MessagesController', () => {
     expect(await controller.update(req, 'm', { content: 'y' })).toBe(1);
     expect(await controller.remove(req, 'm')).toEqual({ deleted: true });
 
-    expect(service.create).toHaveBeenCalledWith('u1', {
-      recipientId: 'u2',
-      content: 'x',
-    });
+    expect(service.create).toHaveBeenCalledWith(
+      'u1',
+      { recipientId: 'u2', content: 'x' },
+      'jwt-u1',
+    );
     expect(service.history).toHaveBeenCalledWith('u1', 'u2', query);
     expect(service.listConversations).toHaveBeenCalledWith('u1');
     expect(service.findOne).toHaveBeenCalledWith('u1', 'm');

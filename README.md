@@ -83,6 +83,8 @@ du Frontend.
 - `PATCH /api/messages/:id` — modifier son propre DM
 - `DELETE /api/messages/:id` — supprimer son propre DM
 
+Le destinataire d'un DM (REST ou `private-message.send`) doit exister : Message-Service le vérifie auprès d'Authentification (`GET /api/users/lookup`, avec le jeton de l'expéditeur) et répond **404 « Destinataire introuvable »** sinon ; 503 si Authentification ne répond pas (échec fermé). Un destinataire trouvé est mémorisé 10 minutes (un seul appel par conversation active) ; un compte supprimé est oublié dès que la route interne `DELETE /api/internal/users/:userId` est appelée.
+
 `GET /api/messages/conversations` renvoie, pour chaque interlocuteur distinct avec qui l'utilisateur authentifié a échangé, le dernier message de la conversation :
 
 ```json

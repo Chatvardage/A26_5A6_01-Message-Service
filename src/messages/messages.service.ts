@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
 import { ConversationSummary } from './dto/conversation-summary.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
+import { DestinatairesService } from './destinataires.service';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 
@@ -19,11 +20,15 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly limiteEnvoi: LimiteEnvoiService,
+    private readonly destinataires: DestinatairesService,
   ) {}
 
+  /** `jeton` : celui de l'expéditeur, pour vérifier que le destinataire
+   * existe (voir DestinatairesService). */
   async create(
     senderId: string,
     dto: CreateMessageDto,
+    jeton: string,
   ): Promise<PrivateMessage> {
     this.limiteEnvoi.verifier(senderId);
     if (dto.recipientId === senderId) {
@@ -31,6 +36,7 @@ export class MessagesService {
         'Impossible de s’envoyer un message privé à soi-même',
       );
     }
+    await this.destinataires.exigerExistant(dto.recipientId, jeton);
 
     // 1) PostgreSQL is the source of truth.
     const message = await this.prisma.privateMessage.create({

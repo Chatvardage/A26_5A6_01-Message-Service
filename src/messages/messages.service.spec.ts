@@ -19,6 +19,7 @@ describe('MessagesService', () => {
   let prisma: any;
   let redis: any;
   let limiteEnvoi: any;
+  let destinataires: any;
   let service: MessagesService;
   beforeEach(() => {
     prisma = {
@@ -35,29 +36,40 @@ describe('MessagesService', () => {
     };
     redis = { publish: jest.fn() };
     limiteEnvoi = { verifier: jest.fn() };
-    service = new MessagesService(prisma, redis, limiteEnvoi);
+    destinataires = { exigerExistant: jest.fn().mockResolvedValue(undefined) };
+    service = new MessagesService(prisma, redis, limiteEnvoi, destinataires);
   });
   it('creates then publishes', async () => {
     prisma.privateMessage.create.mockResolvedValue(msg);
     redis.publish.mockResolvedValue(1);
     await expect(
-      service.create('u1', { recipientId: 'u2', content: 'hi' }),
+      service.create('u1', { recipientId: 'u2', content: 'hi' }, 'jwt'),
     ).resolves.toBe(msg);
     expect(redis.publish).toHaveBeenCalledWith('private-message.created', msg);
     expect(limiteEnvoi.verifier).toHaveBeenCalledWith('u1');
+    expect(destinataires.exigerExistant).toHaveBeenCalledWith('u2', 'jwt');
+  });
+  it('rejects a private message to a recipient that does not exist', async () => {
+    destinataires.exigerExistant.mockRejectedValue(
+      new NotFoundException('Destinataire introuvable'),
+    );
+    await expect(
+      service.create('u1', { recipientId: 'u9', content: 'hi' }, 'jwt'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.privateMessage.create).not.toHaveBeenCalled();
   });
   it('rejects a private message over the send limit', async () => {
     limiteEnvoi.verifier.mockImplementation(() => {
       throw new HttpException('trop', HttpStatus.TOO_MANY_REQUESTS);
     });
     await expect(
-      service.create('u1', { recipientId: 'u2', content: 'hi' }),
+      service.create('u1', { recipientId: 'u2', content: 'hi' }, 'jwt'),
     ).rejects.toBeInstanceOf(HttpException);
     expect(prisma.privateMessage.create).not.toHaveBeenCalled();
   });
   it('rejects a private message sent to self', async () => {
     await expect(
-      service.create('u1', { recipientId: 'u1', content: 'hi' }),
+      service.create('u1', { recipientId: 'u1', content: 'hi' }, 'jwt'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.privateMessage.create).not.toHaveBeenCalled();
     expect(redis.publish).not.toHaveBeenCalled();
@@ -65,7 +77,7 @@ describe('MessagesService', () => {
   it('does not publish when create fails', async () => {
     prisma.privateMessage.create.mockRejectedValue(new Error('db'));
     await expect(
-      service.create('u1', { recipientId: 'u2', content: 'x' }),
+      service.create('u1', { recipientId: 'u2', content: 'x' }, 'jwt'),
     ).rejects.toThrow('db');
     expect(redis.publish).not.toHaveBeenCalled();
   });

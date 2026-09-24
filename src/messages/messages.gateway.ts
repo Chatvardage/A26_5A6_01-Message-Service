@@ -492,7 +492,7 @@ export class MessagesGateway
   ): Promise<PrivateMessage> {
     const senderId = this.requireUserId(client);
 
-    return this.messages.create(senderId, dto);
+    return this.messages.create(senderId, dto, this.readSocketToken(client));
   }
 
   @SubscribeMessage('room-message.join')
