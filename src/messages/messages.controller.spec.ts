@@ -47,12 +47,23 @@ describe("MessagesController", () => {
   });
 
   it("delegates moderation actions for an admin", async () => {
+    service.create.mockResolvedValue(1);
     service.findAllForAdmin.mockResolvedValue([1]);
     service.removeForAdmin.mockResolvedValue(undefined);
 
+    expect(await controller.createForAdmin(adminReq, {
+      senderId: "u1",
+      recipientId: "u2",
+      content: "x",
+    })).toBe(1);
     expect(await controller.findAllForAdmin(adminReq)).toEqual([1]);
     expect(await controller.removeForAdmin(adminReq, "m")).toEqual({
       deleted: true,
+    });
+    expect(service.create).toHaveBeenCalledWith("u1", {
+      senderId: "u1",
+      recipientId: "u2",
+      content: "x",
     });
     expect(service.findAllForAdmin).toHaveBeenCalledWith();
     expect(service.removeForAdmin).toHaveBeenCalledWith("m");
@@ -60,5 +71,10 @@ describe("MessagesController", () => {
 
   it("refuses moderation actions for non-admin users", () => {
     expect(() => controller.findAllForAdmin(req)).toThrow(ForbiddenException);
+    expect(() => controller.createForAdmin(req, {
+      senderId: "u1",
+      recipientId: "u2",
+      content: "x",
+    })).toThrow(ForbiddenException);
   });
 });
