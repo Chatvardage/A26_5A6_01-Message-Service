@@ -21,6 +21,12 @@ import { RoomMessagesService } from './room-messages.service';
     JwtAuthService,
     JwtAuthGuard,
   ],
-  exports: [RoomMessagesService, RoomsClientService, LimiteEnvoiService],
+  exports: [
+    RoomMessagesService,
+    RoomsClientService,
+    LimiteEnvoiService,
+    // Instance unique : son cache de jetons sert aussi à MessagesModule.
+    JwtAuthService,
+  ],
 })
 export class RoomMessagesModule {}

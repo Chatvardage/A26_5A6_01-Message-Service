@@ -61,7 +61,7 @@ describe('MessagesGateway', () => {
     redis = { subscribe: jest.fn() };
     jwt = { verifyToken: jest.fn() };
     roomMessages = { create: jest.fn() };
-    rooms = { verifierAcces: jest.fn() };
+    rooms = { verifierAcces: jest.fn(), oublierServeur: jest.fn() };
     gateway = new MessagesGateway(messages, redis, jwt, roomMessages, rooms);
     emit = jest.fn();
     to = jest.fn(() => ({ emit }));
@@ -543,6 +543,8 @@ describe('MessagesGateway', () => {
       raison: 'expulse',
       cibleId: 'u3',
     });
+    // Les accès mémorisés à ce serveur sont oubliés avant la revérification.
+    expect(rooms.oublierServeur).toHaveBeenCalledWith('s1');
   });
 
   it.each([

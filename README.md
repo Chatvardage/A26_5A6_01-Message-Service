@@ -30,6 +30,8 @@ Message-Service ne valide pas localement la signature du JWT. Il transmet le jet
 
 Auth-Service valide le jeton, vérifie sa révocation avec `version_auth` et confirme l'existence du compte dans PostgreSQL. Message-Service utilise ensuite l'utilisateur retourné par Auth-Service comme identité authentifiée.
 
+Un jeton validé est mémorisé `AUTH_CACHE_TTL_MS` millisecondes (10 000 par défaut, `0` pour interroger Auth à chaque requête) : une révocation ou un changement de rôle est pris en compte au plus tard à l'expiration de l'entrée. Les refus et les pannes ne sont jamais mémorisés. Ce client est le fichier partagé `src/partage/client-auth.ts`, identique dans Room-Service (voir « Fichiers partagés »).
+
 `x-user-id` et `handshake.auth.userId` ne sont pas acceptés. L'identité ne peut donc pas être choisie directement par le client.
 
 ### Droits d'accès aux salons
@@ -50,6 +52,8 @@ avec l'en-tête `x-internal-token: {INTERNAL_SERVICE_TOKEN}`, et reçoit
 - Salon introuvable : **404** ; Room-Service indisponible, en timeout, ou `INTERNAL_SERVICE_TOKEN` absent ou refusé : **503** ; réponse 2xx au format inattendu : **502**.
 
 Le rôle global transmis (`admin` \| `moderateur` \| `utilisateur`) est celui qu'Auth-Service a renvoyé pour le JWT ; seul `admin` a des droits particuliers côté Room-Service.
+
+Un accès obtenu est mémorisé `ROOM_ACCESS_CACHE_TTL_MS` millisecondes (10 000 par défaut, `0` pour interroger Room-Service à chaque fois), par salon, utilisateur et rôle. Chaque changement de serveur signalé par Room-Service (voir « Changements de serveur ») oublie aussitôt tous les accès à ce serveur, avant la revérification des sockets : une expulsion ou un salon rendu réservé est donc pris en compte immédiatement. Les erreurs ne sont jamais mémorisées.
 
 ### Message de bienvenue
 
@@ -251,6 +255,9 @@ REDIS_URL="redis://:chatvardage_redis_dev@localhost:6379"
 CORS_ORIGINS="http://localhost:5173"
 AUTH_SERVICE_URL=http://localhost:3001
 AUTH_SERVICE_TIMEOUT_MS=3000
+# Durées de mémorisation (ms) ; 0 = pas de cache.
+AUTH_CACHE_TTL_MS=10000
+ROOM_ACCESS_CACHE_TTL_MS=10000
 ROOM_SERVICE_URL=http://localhost:3003
 ROOM_SERVICE_TIMEOUT_MS=3000
 # Même valeur que dans Room-Service (route /api/internal/*).
@@ -273,7 +280,16 @@ ROOM_SERVICE_URL=http://room-service:3003
 
 ### En production (`NODE_ENV=production`)
 
-Le service **refuse de démarrer** si `INTERNAL_SERVICE_TOKEN` fait moins de 32 caractères (la valeur de développement `chatvardage_internal_dev` en fait 24), ou si le mot de passe de `DATABASE_URL` / `REDIS_URL` est une valeur de développement de l'Infra (`message_service_dev`, `chatvardage_redis_dev`…) — voir `src/secrets-production.ts`. Le message d'erreur liste tous les problèmes d'un coup ; en développement, les valeurs par défaut de l'Infra restent acceptées. Générer de vraies valeurs, par ex. `openssl rand -hex 32`.
+Le service **refuse de démarrer** si `INTERNAL_SERVICE_TOKEN` fait moins de 32 caractères (la valeur de développement `chatvardage_internal_dev` en fait 24), ou si le mot de passe de `DATABASE_URL` / `REDIS_URL` est l'un des mots de passe de développement de l'Infra (`message_service_dev`, `chatvardage_redis_dev`, `postgres`…) — voir `src/partage/secrets-production.ts`. `AUTH_SERVICE_URL` doit aussi utiliser HTTPS. Le message d'erreur liste tous les problèmes d'un coup ; en développement, les valeurs par défaut de l'Infra restent acceptées. Générer de vraies valeurs, par ex. `openssl rand -hex 32`.
+
+## Fichiers partagés (`src/partage/`)
+
+`src/partage/` contient des fichiers **identiques à l'octet près** dans plusieurs dépôts :
+
+- `client-auth.ts` (+ spec) : validation du JWT auprès d'Authentification, avec cache — identique dans Room-Service ;
+- `secrets-production.ts` (+ spec) : refus de démarrer en production avec les secrets de développement — identique dans Room-Service et User-Config-Service.
+
+Ne pas les modifier dans un seul dépôt : reporter le même changement partout, puis lancer `A26_5A6_01-Infra/scripts/verifier-fichiers-partages.sh`. Ce qui est propre au service (par exemple les secrets exigés) se passe en paramètre depuis `main.ts` ou `auth/jwt-auth.service.ts`.
 
 ## Docker
 

@@ -583,6 +583,9 @@ export class MessagesGateway
     for (const userId of event.utilisateurIds) {
       this.server.to(`user:${userId}`).emit(SERVEUR_CHANNEL, message);
     }
+    // Avant la revérification ci-dessous : elle doit interroger Room-Service,
+    // pas le cache.
+    this.rooms.oublierServeur(event.serveurId);
     this.revoquerAccesPerdus(event as EvenementServeur).catch(
       (erreur: unknown) => {
         this.logger.error(

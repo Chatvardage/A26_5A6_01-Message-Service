@@ -3,7 +3,11 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { RoomsClientService } from './rooms-client.service';
+import {
+  RoomsClientService,
+  TAILLE_MAX_CACHE_ACCES,
+  dureeCacheAccesMs,
+} from './rooms-client.service';
 
 describe('RoomsClientService', () => {
   const originalFetch = global.fetch;
@@ -136,5 +140,92 @@ describe('RoomsClientService', () => {
     await expect(service.verifierAcces('r1', acteur)).rejects.toBeInstanceOf(
       BadGatewayException,
     );
+  });
+
+  describe('cache des accès', () => {
+    const accesOk = () =>
+      Promise.resolve({ ok: true, status: 200, json: async () => acces });
+
+    it('mémorise un accès obtenu', async () => {
+      global.fetch = jest.fn(accesOk) as unknown as typeof fetch;
+      await service.verifierAcces('r1', acteur);
+      await service.verifierAcces('r1', acteur);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      // Autre utilisateur, autre rôle ou autre salon : autre entrée.
+      await service.verifierAcces('r1', { id: 'u2', role: 'utilisateur' });
+      await service.verifierAcces('r1', { id: 'u1', role: 'admin' });
+      await service.verifierAcces('r2', acteur);
+      expect(global.fetch).toHaveBeenCalledTimes(4);
+    });
+
+    it("redemande l'accès une fois l'entrée expirée", async () => {
+      global.fetch = jest.fn(accesOk) as unknown as typeof fetch;
+      const maintenant = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        await service.verifierAcces('r1', acteur);
+        maintenant.mockReturnValue(1_000 + 10_000);
+        await service.verifierAcces('r1', acteur);
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+      } finally {
+        maintenant.mockRestore();
+      }
+    });
+
+    it("oublie les accès d'un serveur qui a changé, pas des autres", async () => {
+      global.fetch = jest.fn(accesOk) as unknown as typeof fetch;
+      await service.verifierAcces('r1', acteur);
+      service.oublierServeur('autre');
+      await service.verifierAcces('r1', acteur);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      service.oublierServeur('s1');
+      await service.verifierAcces('r1', acteur);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('ne mémorise pas une erreur', async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 404 })
+        .mockImplementation(accesOk);
+      await expect(service.verifierAcces('r1', acteur)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(service.verifierAcces('r1', acteur)).resolves.toEqual(acces);
+    });
+
+    it("oublie l'entrée la plus ancienne quand le cache est plein", async () => {
+      global.fetch = jest.fn(accesOk) as unknown as typeof fetch;
+      for (let i = 0; i <= TAILLE_MAX_CACHE_ACCES; i += 1) {
+        await service.verifierAcces(`r${i}`, acteur);
+      }
+      await service.verifierAcces('r0', acteur);
+      expect(global.fetch).toHaveBeenCalledTimes(TAILLE_MAX_CACHE_ACCES + 2);
+    });
+
+    it('ne mémorise rien avec ROOM_ACCESS_CACHE_TTL_MS=0', async () => {
+      process.env.ROOM_ACCESS_CACHE_TTL_MS = '0';
+      try {
+        const sansCache = new RoomsClientService();
+        global.fetch = jest.fn(accesOk) as unknown as typeof fetch;
+        await sansCache.verifierAcces('r1', acteur);
+        await sansCache.verifierAcces('r1', acteur);
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+      } finally {
+        delete process.env.ROOM_ACCESS_CACHE_TTL_MS;
+      }
+    });
+
+    it('refuse une durée de cache invalide', () => {
+      expect(dureeCacheAccesMs({})).toBe(10_000);
+      expect(dureeCacheAccesMs({ ROOM_ACCESS_CACHE_TTL_MS: ' 500 ' })).toBe(
+        500,
+      );
+      expect(() =>
+        dureeCacheAccesMs({ ROOM_ACCESS_CACHE_TTL_MS: 'dix' }),
+      ).toThrow('ROOM_ACCESS_CACHE_TTL_MS doit être un entier');
+      expect(dureeCacheAccesMs()).toBeGreaterThanOrEqual(0);
+    });
   });
 });
