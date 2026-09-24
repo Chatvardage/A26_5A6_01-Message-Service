@@ -3,10 +3,11 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
-import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ExceptionsWsFilter } from './exceptions-ws.filter';
 
 describe('ExceptionsWsFilter', () => {
