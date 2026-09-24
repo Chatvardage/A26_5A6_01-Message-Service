@@ -297,6 +297,12 @@ Le build génère Prisma et compile NestJS. L'image finale réutilise les dépen
 
 Le conteneur tourne sous l'utilisateur non root `node` de l'image, et exécute `prisma migrate deploy`, puis `node dist/main`.
 
+Pour lancer le service seul, avec son PostgreSQL et son Redis (Authentification et Room-Service attendus sur l'hôte) :
+
+```bash
+docker compose -f compose.local.yml up --build
+```
+
 L'orchestration complète appartient au dépôt `A26_5A6_01-Infra`.
 
 ## Vérification
