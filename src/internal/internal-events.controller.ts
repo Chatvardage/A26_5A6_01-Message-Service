@@ -23,7 +23,8 @@ export class InternalEventsController {
       serveurId: dto.serveurId,
       raison: dto.raison,
       cibleId: dto.cibleId ?? null,
-      utilisateurIds: [...new Set(dto.utilisateurIds)],
+      tous: dto.tous === true,
+      utilisateurIds: dto.tous ? [] : [...new Set(dto.utilisateurIds)],
     });
     return { accepte: true };
   }

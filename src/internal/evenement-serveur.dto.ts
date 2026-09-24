@@ -1,11 +1,13 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 /** Raisons d'un changement de serveur, pour l'affichage côté client. */
@@ -22,7 +24,10 @@ export type RaisonServeur = (typeof RAISONS_SERVEUR)[number];
 
 /**
  * Changement dans un serveur, envoyé par Room-Service : relayé en temps réel
- * à `utilisateurIds` (membres concernés, calculés par Room-Service).
+ * à `utilisateurIds` (membres concernés, calculés par Room-Service), ou à
+ * tous les clients connectés si `tous` (serveur par défaut, dont tout le
+ * monde est membre : la liste de tous les comptes ne passe pas dans une
+ * requête).
  */
 export class EvenementServeurDto {
   @IsString() @IsNotEmpty() @MaxLength(255) serveurId!: string;
@@ -31,9 +36,12 @@ export class EvenementServeurDto {
 
   @IsOptional() @IsString() @MaxLength(255) cibleId?: string;
 
+  @IsOptional() @IsBoolean() tous?: boolean;
+
+  @ValidateIf((dto: EvenementServeurDto) => dto.tous !== true)
   @IsArray()
   @ArrayMaxSize(10_000)
   @IsString({ each: true })
   @MaxLength(255, { each: true })
-  utilisateurIds!: string[];
+  utilisateurIds?: string[];
 }

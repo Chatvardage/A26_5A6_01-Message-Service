@@ -671,6 +671,13 @@ describe('MessagesGateway', () => {
     { serveurId: 's', raison: 'salons', cibleId: 5, utilisateurIds: [] },
     { serveurId: 's', raison: 'salons', cibleId: null, utilisateurIds: 'u1' },
     { serveurId: 's', raison: 'salons', cibleId: null, utilisateurIds: [1] },
+    {
+      serveurId: 's',
+      raison: 'salons',
+      cibleId: null,
+      tous: 'oui',
+      utilisateurIds: [],
+    },
   ])('ignores an invalid server change %#', async (payload) => {
     const publier = await brancherRedis();
     publier('serveur.change', payload);
@@ -984,6 +991,74 @@ describe('MessagesGateway', () => {
         ...partiel,
       } as any),
     ).toEqual(attendu);
+  });
+
+  it('« tous » : diffusé à tous les clients, accès revérifiés sur tous les sockets', async () => {
+    const serverEmit = jest.fn();
+    const perdu = socketDansSalons({ r1: 'defaut', r2: 's2' });
+    const garde = {
+      ...socketDansSalons({ r3: 'defaut' }),
+      data: { userId: 'u4', salons: { r3: 'defaut' } },
+    };
+    const enCours = {
+      ...socketDansSalons({ r1: 'defaut' }),
+      data: { salons: { r1: 'defaut' } },
+    };
+    (gateway as any).server = {
+      emit: serverEmit,
+      to,
+      fetchSockets: jest.fn().mockResolvedValue([perdu, garde, enCours]),
+    };
+    rooms.verifierAcces.mockImplementation(async (salonId: string) => ({
+      peutLire: salonId === 'r3',
+    }));
+    const publier = await brancherRedis();
+
+    publier('serveur.change', {
+      serveurId: 'defaut',
+      raison: 'salons',
+      cibleId: null,
+      tous: true,
+      utilisateurIds: [],
+    });
+    await vider();
+
+    expect(serverEmit).toHaveBeenCalledWith('serveur.change', {
+      serveurId: 'defaut',
+      raison: 'salons',
+      cibleId: null,
+    });
+    expect(to).not.toHaveBeenCalled();
+    expect(rooms.oublierServeur).toHaveBeenCalledWith('defaut');
+    expect(perdu.leave).toHaveBeenCalledWith('room:r1');
+    expect(perdu.data.salons).toEqual({ r2: 's2' });
+    expect(garde.leave).not.toHaveBeenCalled();
+    // Socket pas encore authentifié : ignoré.
+    expect(enCours.leave).not.toHaveBeenCalled();
+  });
+
+  it('« tous » pour un membre : seule la personne visée est revérifiée', async () => {
+    const serverEmit = jest.fn();
+    const fetchSockets = jest.fn();
+    (gateway as any).server = {
+      emit: serverEmit,
+      fetchSockets,
+      in: jest.fn(() => ({ fetchSockets: jest.fn().mockResolvedValue([]) })),
+    };
+    const publier = await brancherRedis();
+
+    publier('serveur.change', {
+      serveurId: 'defaut',
+      raison: 'membres',
+      cibleId: 'u3',
+      tous: true,
+      utilisateurIds: [],
+    });
+    await vider();
+
+    expect(serverEmit).toHaveBeenCalled();
+    expect(fetchSockets).not.toHaveBeenCalled();
+    expect((gateway as any).server.in).toHaveBeenCalledWith('user:u3');
   });
 
   it("removes an expelled member from the server's rooms only", async () => {

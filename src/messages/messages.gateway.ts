@@ -137,6 +137,8 @@ interface EvenementServeur {
   serveurId: string;
   raison: RaisonServeur;
   cibleId: string | null;
+  /** À tous les clients connectés (serveur par défaut), sans liste. */
+  tous?: boolean;
   utilisateurIds: string[];
 }
 
@@ -639,6 +641,7 @@ export class MessagesGateway
       typeof event?.serveurId !== 'string' ||
       !RAISONS_SERVEUR.includes(event.raison as RaisonServeur) ||
       (event.cibleId !== null && typeof event.cibleId !== 'string') ||
+      (event.tous !== undefined && typeof event.tous !== 'boolean') ||
       !Array.isArray(event.utilisateurIds) ||
       !event.utilisateurIds.every((id) => typeof id === 'string')
     ) {
@@ -650,8 +653,12 @@ export class MessagesGateway
       raison: event.raison,
       cibleId: event.cibleId,
     };
-    for (const userId of event.utilisateurIds) {
-      this.server.to(`user:${userId}`).emit(SERVEUR_CHANNEL, message);
+    if (event.tous) {
+      this.server.emit(SERVEUR_CHANNEL, message);
+    } else {
+      for (const userId of event.utilisateurIds) {
+        this.server.to(`user:${userId}`).emit(SERVEUR_CHANNEL, message);
+      }
     }
     // Avant la revérification ci-dessous : elle doit interroger Room-Service,
     // pas le cache.
@@ -675,32 +682,42 @@ export class MessagesGateway
    * les salons de ce serveur.
    */
   private async revoquerAccesPerdus(event: EvenementServeur): Promise<void> {
-    for (const userId of utilisateursARevalider(event)) {
-      // `server` n'est pas typé par événement (voir broadcast*) : on
-      // retrouve ici le type des données posées sur nos sockets.
-      const sockets = (await this.server
-        .in(`user:${userId}`)
-        .fetchSockets()) as unknown as RemoteSocket<
-        EvenementsVersClient,
-        SocketData
-      >[];
-      for (const socket of sockets) {
-        const salons = socket.data.salons ?? {};
-        for (const [salonId, serveurId] of Object.entries(salons)) {
-          if (serveurId !== event.serveurId) continue;
-          if (
-            event.raison !== 'supprime' &&
-            (await this.peutEncoreLire(salonId, {
-              id: userId,
-              role: socket.data.role ?? 'utilisateur',
-            }))
-          ) {
-            continue;
-          }
-          socket.leave(`room:${salonId}`);
-          delete salons[salonId];
-          socket.emit('room-message.revoked', { roomId: salonId });
+    // `server` n'est pas typé par événement (voir broadcast*) : on retrouve
+    // ici le type des données posées sur nos sockets.
+    type SocketDistant = RemoteSocket<EvenementsVersClient, SocketData>;
+    // Salons du serveur par défaut (`tous`) : tout socket peut être concerné.
+    const tousLesSockets =
+      event.tous && (event.raison === 'salons' || event.raison === 'supprime');
+    const sockets = tousLesSockets
+      ? ((await this.server.fetchSockets()) as unknown as SocketDistant[])
+      : (
+          await Promise.all(
+            utilisateursARevalider(event).map(
+              (userId) =>
+                this.server
+                  .in(`user:${userId}`)
+                  .fetchSockets() as unknown as Promise<SocketDistant[]>,
+            ),
+          )
+        ).flat();
+    for (const socket of sockets) {
+      const userId = socket.data.userId;
+      if (!userId) continue;
+      const salons = socket.data.salons ?? {};
+      for (const [salonId, serveurId] of Object.entries(salons)) {
+        if (serveurId !== event.serveurId) continue;
+        if (
+          event.raison !== 'supprime' &&
+          (await this.peutEncoreLire(salonId, {
+            id: userId,
+            role: socket.data.role ?? 'utilisateur',
+          }))
+        ) {
+          continue;
         }
+        socket.leave(`room:${salonId}`);
+        delete salons[salonId];
+        socket.emit('room-message.revoked', { roomId: salonId });
       }
     }
   }

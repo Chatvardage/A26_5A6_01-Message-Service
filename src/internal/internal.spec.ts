@@ -73,6 +73,7 @@ describe('routes internes', () => {
           serveurId: 's1',
           raison: 'expulse',
           cibleId: 'u3',
+          tous: false,
           utilisateurIds: ['u1', 'u3'],
         },
       ],
@@ -82,10 +83,29 @@ describe('routes internes', () => {
           serveurId: 's1',
           raison: 'salons',
           cibleId: null,
+          tous: false,
           utilisateurIds: ['u1'],
         },
       ],
     ]);
+  });
+
+  it('événement « à tous » : sans liste de destinataires', async () => {
+    const redis = { publish: jest.fn().mockResolvedValue(1) };
+    const controller = new InternalEventsController(redis as any);
+    await controller.recevoir({
+      serveurId: 'defaut',
+      raison: 'salons',
+      tous: true,
+      utilisateurIds: ['ignore'],
+    });
+    expect(redis.publish).toHaveBeenCalledWith('serveur.change', {
+      serveurId: 'defaut',
+      raison: 'salons',
+      cibleId: null,
+      tous: true,
+      utilisateurIds: [],
+    });
   });
 
   it("valide le corps de l'événement", async () => {
@@ -99,5 +119,15 @@ describe('routes internes', () => {
     expect(
       await erreurs({ serveurId: '', raison: 'piratage', utilisateurIds: [1] }),
     ).toEqual(['serveurId', 'raison', 'utilisateurIds']);
+    // `tous` : la liste devient facultative.
+    expect(
+      await erreurs({ serveurId: 's', raison: 'salons', tous: true }),
+    ).toEqual([]);
+    expect(await erreurs({ serveurId: 's', raison: 'salons' })).toEqual([
+      'utilisateurIds',
+    ]);
+    expect(
+      await erreurs({ serveurId: 's', raison: 'salons', tous: 'oui' }),
+    ).toEqual(['tous', 'utilisateurIds']);
   });
 });

@@ -255,6 +255,13 @@ x-internal-token: {INTERNAL_SERVICE_TOKEN}
 instance émet `serveur.change` `{ serveurId, raison, cibleId }` dans la room
 `user:<id>` de chaque destinataire. Serveur-API ne relaie pas `/api/internal`.
 
+Pour le **serveur par défaut** (dont tout le monde est membre), Room-Service
+envoie `"tous": true` sans liste : la liste de tous les comptes dépasserait
+vite la taille maximale d'une requête (100 Ko, soit ~2 500 identifiants).
+L'événement est alors émis à **tous** les clients connectés ; pour `salons`
+et `supprime`, les accès de tous les sockets à ce serveur sont revérifiés
+(pour `membres` / `expulse`, seulement la personne visée).
+
 ## Variables d'environnement
 
 ```env
