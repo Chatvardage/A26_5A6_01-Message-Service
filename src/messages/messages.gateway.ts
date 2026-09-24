@@ -31,7 +31,7 @@ import { RoomIdDto } from '../room-messages/dto/room-id.dto';
 import { SendRoomMessageDto } from '../room-messages/dto/send-room-message.dto';
 import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
 import { CreateMessageDto } from './dto/create-message.dto';
-import { PresenceDto } from './dto/presence.dto';
+import { PresenceDto, SuivrePresenceDto } from './dto/presence.dto';
 import { TypingDto } from './dto/typing.dto';
 import { MessagesService } from './messages.service';
 
@@ -41,8 +41,10 @@ interface SocketData {
   // droits des salons (ex. un admin peut écrire dans #annonces).
   role?: AuthenticatedUser['role'];
   // Dernière présence annoncée sur ce socket (voir updatePresence), pour
-  // l'instantané envoyé aux nouveaux clients.
+  // la réponse à `presence.suivre`.
   presence?: PresenceEvent['statut'];
+  // Dernier `presence.suivre` (voir DELAI_MIN_SUIVI_PRESENCE_MS).
+  dernierSuivi?: number;
   // Salons rejoints par ce socket (id du salon -> id de son serveur), pour
   // retirer le socket d'un salon dont il perd l'accès (voir
   // revoquerAccesPerdus).
@@ -53,9 +55,8 @@ interface SocketData {
 }
 
 // Événements émis depuis un socket (les autres passent par this.server) :
-// instantané de présence d'un nouveau client, indicateur de frappe relayé.
+// indicateur de frappe relayé, états de la connexion.
 interface EvenementsVersClient {
-  'presence.snapshot': (payload: { enLigne: string[] }) => void;
   // Authentification du socket terminée (voir handleConnection) : le client
   // peut maintenant annoncer sa présence et rejoindre ses salons. Avant, ses
   // événements sont refusés (voir requireUserId) — ce qui laissait un client
@@ -126,6 +127,9 @@ export const DELAI_MIN_PROFIL_MS = 5000;
 // toujours relayé ; le même état répété vers la même cible, au plus une fois
 // par fenêtre (les destinataires gardent l'état jusqu'au changement).
 export const DELAI_MIN_SAISIE_MS = 1000;
+// 'presence.suivre' : le client le renvoie quand les personnes affichées
+// changent (regroupé côté client) ; au plus une fois par fenêtre.
+export const DELAI_MIN_SUIVI_PRESENCE_MS = 1000;
 // Un socket n'était authentifié qu'à la connexion : un jeton révoqué (mot de
 // passe changé, compte supprimé) ou expiré continuait de recevoir messages
 // et présence tant que le socket restait ouvert. Chaque socket est donc
@@ -299,37 +303,7 @@ export class MessagesGateway
       client.disconnect(true);
       return;
     }
-    await this.envoyerInstantanePresence(client);
     client.emit('connexion.prete');
-  }
-
-  /**
-   * Présences en direct pour un client qui vient de se connecter : il n'a
-   * reçu aucun `presence.changed` passé (notamment les « hors ligne » de
-   * ceux qui ont quitté juste avant). Liste des utilisateurs dont au moins un
-   * socket a annoncé « en ligne ». Sans adaptateur Redis de Socket.IO,
-   * `fetchSockets()` ne voit que les clients de CETTE instance : suffisant
-   * tant que Message-Service tourne en une seule instance (Infra).
-   * Best-effort : un échec ne coupe pas la connexion.
-   */
-  private async envoyerInstantanePresence(
-    client: AuthenticatedSocket,
-  ): Promise<void> {
-    try {
-      const sockets = await this.server.fetchSockets();
-      const enLigne = new Set<string>();
-      for (const socket of sockets) {
-        const data = socket.data as SocketData;
-        if (data.userId && data.presence === 'en-ligne') {
-          enLigne.add(data.userId);
-        }
-      }
-      client.emit('presence.snapshot', { enLigne: [...enLigne] });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'erreur inconnue';
-      this.logger.warn(`Instantané de présence non envoyé: ${message}`);
-    }
   }
 
   /**
@@ -394,6 +368,56 @@ export class MessagesGateway
       DELAI_MIN_PROFIL_MS - (maintenant - limite.dernierEnvoi),
     );
     return { ok: true };
+  }
+
+  /**
+   * Présence des seules personnes que le client affiche : le socket rejoint
+   * la room `presence:<id>` de chacune (et quitte les autres), puis reçoit
+   * qui est en ligne parmi elles. Les `presence.changed` ne sont envoyés
+   * qu'à ces rooms : diffuser chaque changement à tous les clients coûtait
+   * N envois par changement (N², tout le monde étant dans le serveur par
+   * défaut).
+   */
+  @SubscribeMessage('presence.suivre')
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async suivrePresence(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() dto: SuivrePresenceDto,
+  ): Promise<{ enLigne: string[] }> {
+    const userId = this.requireUserId(client);
+    const maintenant = Date.now();
+    if (
+      client.data.dernierSuivi !== undefined &&
+      maintenant - client.data.dernierSuivi < DELAI_MIN_SUIVI_PRESENCE_MS
+    ) {
+      throw new WsException('Trop de demandes de présence');
+    }
+    client.data.dernierSuivi = maintenant;
+
+    const suivis = new Set(dto.ids.filter((id) => id !== userId));
+    for (const room of client.rooms) {
+      if (room.startsWith('presence:') && !suivis.has(room.slice(9))) {
+        await client.leave(room);
+      }
+    }
+    await client.join([...suivis].map((id) => `presence:${id}`));
+
+    // Sans adaptateur Redis de Socket.IO, seuls les clients de CETTE
+    // instance sont vus : suffisant en une seule instance (Infra).
+    const enLigne: string[] = [];
+    await Promise.all(
+      [...suivis].map(async (id) => {
+        const sockets = await this.server.in(`user:${id}`).fetchSockets();
+        if (
+          sockets.some(
+            (socket) => (socket.data as SocketData).presence === 'en-ligne',
+          )
+        ) {
+          enLigne.push(id);
+        }
+      }),
+    );
+    return { enLigne };
   }
 
   @SubscribeMessage('presence.update')
@@ -754,10 +778,15 @@ export class MessagesGateway
       return;
     }
 
-    this.server.emit(PRESENCE_CHANNEL, {
-      userId: candidat.userId,
-      statut: candidat.statut,
-    });
+    // Seulement aux clients qui suivent cet utilisateur (presence.suivre)
+    // et à ses propres autres sockets.
+    this.server
+      .to(`presence:${candidat.userId}`)
+      .to(`user:${candidat.userId}`)
+      .emit(PRESENCE_CHANNEL, {
+        userId: candidat.userId,
+        statut: candidat.statut,
+      });
   }
 
   private isPrivateMessageEvent(value: unknown): value is PrivateMessageEvent {

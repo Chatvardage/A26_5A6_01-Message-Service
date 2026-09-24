@@ -187,7 +187,7 @@ La présence choisie est enregistrée par le client dans User-Config-Service
 
 - serveur → client : `connexion.prete` (sans données), une fois le socket
   **authentifié** (jeton validé auprès d'Auth-Service, room `user:<id>`
-  rejointe, instantané envoyé). L'événement `connect` de Socket.IO arrive
+  rejointe). L'événement `connect` de Socket.IO arrive
   AVANT, dès la poignée de main : un événement émis à ce moment-là
   (`presence.update`, `room-message.join`…) est refusé (« Utilisateur non
   authentifié »). Les clients attendent donc `connexion.prete` pour annoncer
@@ -208,21 +208,26 @@ La présence choisie est enregistrée par le client dans User-Config-Service
   présence ;
 - quand le **dernier** socket d'un utilisateur se ferme (app quittée,
   plantage, réseau coupé), `hors-ligne` est diffusé aussitôt ;
-- serveur → **tous** les clients : `presence.changed` `{ userId, statut }`.
-  La présence est déjà publique pour tout utilisateur authentifié
-  (`GET /api/config-utilisateur/publiques`) ;
-- serveur → **nouveau** client, juste après sa connexion :
-  `presence.snapshot` `{ enLigne: string[] }`, les utilisateurs dont au moins
-  un socket a annoncé `en-ligne`. Un client qui arrive connaît ainsi tout de
-  suite les absents, y compris ceux partis juste avant lui.
+- client → serveur : `presence.suivre` `{ ids: string[] }` (500 au plus,
+  une demande par seconde au plus), avec accusé de réception : les
+  utilisateurs dont le client veut la présence (ceux qu'il affiche). Remplace
+  la liste précédente ; le socket rejoint les rooms `presence:<id>`.
+  Réponse : `{ enLigne: string[] }`, ceux dont au moins un socket a annoncé
+  `en-ligne`. Envoyé après chaque `connexion.prete`, puis quand les
+  personnes affichées changent ;
+- serveur → clients qui **suivent** l'utilisateur (et ses autres sockets) :
+  `presence.changed` `{ userId, statut }`. Avant, chaque changement était
+  envoyé à tous les clients connectés (N envois par changement). La présence
+  reste publique pour tout utilisateur authentifié
+  (`GET /api/config-utilisateur/publiques`).
 
 Le Frontend continue de sonder User-Config-Service toutes les 20 s pour
-réconcilier. Tant que son socket est connecté, la liste temps réel
-(instantané + `presence.changed`) décide qui est « en ligne » ; sans socket,
+réconcilier. Tant que son socket est connecté, la présence temps réel
+(réponse à `presence.suivre` + `presence.changed`) décide qui est « en ligne » ; sans socket,
 un `hors-ligne` reçu en temps réel prime ~100 s, le temps que
 User-Config-Service constate lui-même l'absence de signe de vie.
 
-> L'instantané repose sur `fetchSockets()`, qui ne voit que les clients de
+> La réponse à `presence.suivre` repose sur `fetchSockets()`, qui ne voit que les clients de
 > l'instance courante. Pour plusieurs instances de Message-Service, ajouter
 > l'adaptateur Redis de Socket.IO (`@socket.io/redis-adapter`).
 

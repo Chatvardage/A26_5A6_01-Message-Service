@@ -10,6 +10,7 @@ import {
   MessagesGateway,
   utilisateursARevalider,
   INTERVALLE_REVALIDATION_MS,
+  DELAI_MIN_SUIVI_PRESENCE_MS,
 } from './messages.gateway';
 
 describe('MessagesGateway', () => {
@@ -463,36 +464,8 @@ describe('MessagesGateway', () => {
     },
   );
 
-  it('sends the new client the users currently online (snapshot)', async () => {
-    jwt.verifyToken.mockResolvedValue({ id: 'u1', role: 'utilisateur' });
-    const fetchSockets = jest.fn().mockResolvedValue([
-      { data: { userId: 'u2', presence: 'en-ligne' } },
-      { data: { userId: 'u2', presence: 'en-ligne' } }, // 2e appareil
-      { data: { userId: 'u3', presence: 'hors-ligne' } },
-      { data: { userId: 'u4' } }, // pas encore annoncé
-      { data: {} }, // pas encore authentifié
-    ]);
-    (gateway as any).server = { fetchSockets };
-    const client: any = {
-      handshake: { auth: { token: 'jwt' } },
-      data: {},
-      disconnect: jest.fn(),
-      join: jest.fn().mockResolvedValue(undefined),
-      emit: jest.fn(),
-    };
-
-    await gateway.handleConnection(client);
-
-    expect(client.emit).toHaveBeenCalledWith('presence.snapshot', {
-      enLigne: ['u2'],
-    });
-    expect(client.disconnect).not.toHaveBeenCalled();
-  });
-
-  it('does not send a snapshot to a refused client', async () => {
+  it('does not send anything but the refusal to a refused client', async () => {
     jwt.verifyToken.mockRejectedValue(new UnauthorizedException());
-    const fetchSockets = jest.fn();
-    (gateway as any).server = { fetchSockets };
     const client: any = {
       handshake: { auth: { token: 'bad' } },
       data: {},
@@ -501,32 +474,77 @@ describe('MessagesGateway', () => {
       emit: jest.fn(),
     };
     await gateway.handleConnection(client);
-    expect(fetchSockets).not.toHaveBeenCalled();
-    // Ni instantané de présence ni connexion.prete : seulement le refus.
     expect(client.emit.mock.calls).toEqual([['session.revoquee']]);
   });
 
-  it.each([new Error('adapter down'), 'failure'])(
-    'keeps the connection when the snapshot fails (%p)',
-    async (erreur) => {
-      jwt.verifyToken.mockResolvedValue({ id: 'u1', role: 'utilisateur' });
+  describe('presence.suivre', () => {
+    const socketsDe: Record<string, any[]> = {};
+    const client = (data: Record<string, unknown> = {}) => ({
+      data: { userId: 'u1', ...data },
+      rooms: new Set([
+        'socket-id',
+        'user:u1',
+        'presence:ancien',
+        'presence:u2',
+      ]),
+      join: jest.fn().mockResolvedValue(undefined),
+      leave: jest.fn().mockResolvedValue(undefined),
+    });
+
+    beforeEach(() => {
+      socketsDe.u2 = [
+        { data: { userId: 'u2', presence: 'hors-ligne' } },
+        { data: { userId: 'u2', presence: 'en-ligne' } }, // 2e appareil
+      ];
+      socketsDe.u3 = [{ data: { userId: 'u3', presence: 'hors-ligne' } }];
+      socketsDe.u4 = [{ data: { userId: 'u4' } }]; // pas encore annoncé
       (gateway as any).server = {
-        fetchSockets: jest.fn().mockRejectedValue(erreur),
+        in: jest.fn((room: string) => ({
+          fetchSockets: jest
+            .fn()
+            .mockResolvedValue(socketsDe[room.replace('user:', '')] ?? []),
+        })),
       };
-      const client: any = {
-        handshake: { auth: { token: 'jwt' } },
-        data: {},
-        disconnect: jest.fn(),
-        join: jest.fn().mockResolvedValue(undefined),
-        emit: jest.fn(),
-      };
-      await gateway.handleConnection(client);
-      expect(client.disconnect).not.toHaveBeenCalled();
-      // Pas d'instantané, mais la connexion est tout de même signalée prête.
-      expect(client.emit).toHaveBeenCalledTimes(1);
-      expect(client.emit).toHaveBeenCalledWith('connexion.prete');
-    },
-  );
+    });
+
+    it('rejoint les rooms des personnes suivies, quitte les autres, renvoie qui est en ligne', async () => {
+      const c: any = client();
+      const reponse = await gateway.suivrePresence(c, {
+        ids: ['u2', 'u3', 'u4', 'u1', 'absent'],
+      });
+
+      expect(reponse).toEqual({ enLigne: ['u2'] });
+      expect(c.leave).toHaveBeenCalledWith('presence:ancien');
+      expect(c.leave).toHaveBeenCalledTimes(1);
+      // Jamais soi-même.
+      expect(c.join).toHaveBeenCalledWith([
+        'presence:u2',
+        'presence:u3',
+        'presence:u4',
+        'presence:absent',
+      ]);
+    });
+
+    it('au plus une demande par fenêtre, et seulement une fois authentifié', async () => {
+      const maintenant = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+      try {
+        const c: any = client();
+        await gateway.suivrePresence(c, { ids: [] });
+        await expect(gateway.suivrePresence(c, { ids: [] })).rejects.toThrow(
+          'Trop de demandes de présence',
+        );
+        maintenant.mockReturnValue(10_000 + DELAI_MIN_SUIVI_PRESENCE_MS);
+        await expect(gateway.suivrePresence(c, { ids: [] })).resolves.toEqual({
+          enLigne: [],
+        });
+      } finally {
+        maintenant.mockRestore();
+      }
+      await expect(
+        gateway.suivrePresence({ data: {} } as any, { ids: [] }),
+      ).rejects.toThrow('Utilisateur non authentifié');
+    });
+  });
 
   // --- profils et serveurs ---
 
@@ -705,7 +723,7 @@ describe('MessagesGateway', () => {
     });
   });
 
-  it('broadcasts a valid presence event to every client, and ignores invalid ones', async () => {
+  it('sends a valid presence event to its followers only, and ignores invalid ones', async () => {
     let handler!: (channel: string, payload: string) => void;
     redis.subscribe.mockImplementation(
       async (_channels: string[], h: typeof handler) => {
@@ -713,17 +731,28 @@ describe('MessagesGateway', () => {
       },
     );
     const serverEmit = jest.fn();
-    (gateway as any).server = { emit: serverEmit };
+    const salles: string[] = [];
+    const cible: { to: jest.Mock; emit: jest.Mock } = {
+      to: jest.fn((salle: string): unknown => {
+        salles.push(salle);
+        return cible;
+      }),
+      emit: serverEmit,
+    };
+    (gateway as any).server = { to: cible.to, emit: jest.fn() };
     await gateway.afterInit();
 
     handler(
       'presence.changed',
       JSON.stringify({ userId: 'u1', statut: 'en-ligne', extra: 'x' }),
     );
+    expect(salles).toEqual(['presence:u1', 'user:u1']);
     expect(serverEmit).toHaveBeenCalledWith('presence.changed', {
       userId: 'u1',
       statut: 'en-ligne',
     });
+    // Plus de diffusion à tous les clients.
+    expect((gateway as any).server.emit).not.toHaveBeenCalled();
 
     serverEmit.mockClear();
     handler('presence.changed', 'pas du json');
