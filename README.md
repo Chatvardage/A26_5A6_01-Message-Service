@@ -32,15 +32,40 @@ Auth-Service valide le jeton, vérifie sa révocation avec `version_auth` et con
 
 `x-user-id` et `handshake.auth.userId` ne sont pas acceptés. L'identité ne peut donc pas être choisie directement par le client.
 
-### Appartenance aux salons
+### Droits d'accès aux salons
 
-Message-Service ne connaît pas localement les membres d'un salon : cette
-donnée appartient à `A26_5A6_01-Room-Service`. Avant toute écriture ou
-lecture d'un message de salon, `RoomsClientService` appelle
-`GET {ROOM_SERVICE_URL}/api/rooms/:roomId` et vérifie que l'utilisateur
-authentifié figure dans `membreIds`. Un salon introuvable renvoie **404**,
-Room-Service indisponible/en timeout renvoie **503**, et une réponse 2xx au
-format inattendu renvoie **502**.
+Message-Service ne connaît ni les membres ni les permissions des salons :
+ces données appartiennent à `A26_5A6_01-Room-Service` (serveurs, rôles,
+salons réservés aux modérateurs, écriture réservée de `#annonces`). Avant
+toute lecture, écriture, modification ou suppression d'un message de salon,
+et avant de rejoindre la room Socket.IO d'un salon, `RoomsClientService`
+appelle la route interne
+`GET {ROOM_SERVICE_URL}/api/internal/channels/:roomId/access/:userId?role=<rôle global>`
+avec l'en-tête `x-internal-token: {INTERNAL_SERVICE_TOKEN}`, et reçoit
+`{ salonId, serveurId, estMembre, peutLire, peutEcrire }`.
+
+- Lecture (historique, message, rejoindre la room) : `peutLire` requis (**403** sinon).
+- Écriture : `peutEcrire` requis, **403** « Seuls les modérateurs peuvent écrire dans ce salon » pour un salon lisible en écriture réservée.
+- Modification / suppression : `peutLire` requis (un membre expulsé ne touche plus à ses messages), puis être l'auteur.
+- Salon introuvable : **404** ; Room-Service indisponible, en timeout, ou `INTERNAL_SERVICE_TOKEN` absent ou refusé : **503** ; réponse 2xx au format inattendu : **502**.
+
+Le rôle global transmis (`admin` \| `moderateur` \| `utilisateur`) est celui qu'Auth-Service a renvoyé pour le JWT ; seul `admin` a des droits particuliers côté Room-Service.
+
+### Message de bienvenue
+
+La migration `20260924110000_message_bienvenue` insère, dans `#annonces` du
+serveur par défaut « Chatvardage », un message expliquant l'app (auteur
+`system`, affiché « Système »). Son identifiant et celui du salon sont figés
+(voir Room-Service, `src/servers/default-server.ts`). Pour changer le texte
+avant le premier déploiement, modifier cette migration ; après, créer une
+nouvelle migration `UPDATE`.
+
+Le Frontend n'affiche pas ce texte brut : il reconnaît le message à son
+identifiant (`00000000-0000-4000-8000-000000000101`) et affiche sa version
+traduite (`channels.welcomeMessage` dans `translations.json`, fr et en)
+tant que le message n'a pas été modifié (`updatedAt` = `createdAt`). Tout
+changement du texte doit donc aussi être reporté dans les deux traductions
+du Frontend.
 
 ## API REST
 
@@ -127,6 +152,7 @@ Après validation du JWT par Auth-Service, le client est placé dans la room `us
 
 - `room-message.join` `{ roomId }` — vérifie l'appartenance au salon via Room-Service puis place le socket dans la room Socket.IO `room:<roomId>`
 - `room-message.leave` `{ roomId }` — retire le socket de `room:<roomId>` (aucune vérification requise)
+- `room-message.revoked` `{ roomId }` (serveur → client) — le socket a été retiré de `room:<roomId>` après une perte d'accès (expulsion, rôle retiré, salon réservé ou supprimé, serveur supprimé) ; voir `docs/TEMPS_REEL_SALONS.md`
 - `room-message.send` `{ roomId, content }` — crée le message (même vérification d'appartenance que la création REST)
 
 Événements serveur :
@@ -137,13 +163,80 @@ Après validation du JWT par Auth-Service, le client est placé dans la room `us
 
 ### Indicateur de frappe (typing)
 
-Événement client `typing` `{ scope: 'room' | 'dm', targetId, isTyping }` : relayé directement, **sans persistance ni passage par Redis/PostgreSQL** (best-effort, éphémère). La cible est `room:<targetId>` pour `scope: 'room'` ou `user:<targetId>` pour `scope: 'dm'`. Le serveur réémet `typing` avec `{ userId, scope, targetId, isTyping }` à tous les clients de cette room, sauf l'émetteur.
+Événement client `typing` `{ scope: 'room' | 'dm', targetId, isTyping }` : relayé directement, **sans persistance ni passage par Redis/PostgreSQL** (best-effort, éphémère). La cible est `room:<targetId>` pour `scope: 'room'` (ignoré si le socket n'a pas rejoint cette room) ou `user:<targetId>` pour `scope: 'dm'`. Le serveur réémet `typing` avec `{ userId, scope, targetId, isTyping }` à tous les clients de cette room, sauf l'émetteur. **Limite par socket et par cible** (`DELAI_MIN_SAISIE_MS`, 1 s) : un changement d'état (commence / arrête d'écrire) est toujours relayé, mais le même état répété (un envoi par frappe côté client) au plus une fois par seconde — un message privé pouvant viser n'importe qui, un client ne peut pas inonder un autre utilisateur.
 
 Le chemin de diffusion pour les messages persistés (DM et salon) est :
 
 `PostgreSQL -> Redis PUBLISH -> Redis SUBSCRIBE -> Socket.IO`
 
 Pour un DM, l'émetteur et le destinataire reçoivent l'événement temps réel correspondant. Pour un message de salon, tous les sockets ayant rejoint `room:<roomId>` (via `room-message.join`) le reçoivent.
+
+### Présence (en ligne / hors ligne)
+
+La présence choisie est enregistrée par le client dans User-Config-Service
+(`PUT /api/config-utilisateur/presence`) ; Message-Service ne fait que la
+**diffuser en temps réel** (canal Redis `presence.changed`) :
+
+- serveur → client : `connexion.prete` (sans données), une fois le socket
+  **authentifié** (jeton validé auprès d'Auth-Service, room `user:<id>`
+  rejointe, instantané envoyé). L'événement `connect` de Socket.IO arrive
+  AVANT, dès la poignée de main : un événement émis à ce moment-là
+  (`presence.update`, `room-message.join`…) est refusé (« Utilisateur non
+  authentifié »). Les clients attendent donc `connexion.prete` pour annoncer
+  leur présence et rejoindre leurs salons — sinon, après une coupure
+  réseau, un client restait « hors ligne » pour les autres ;
+- client → serveur : `presence.update` `{ statut: 'en-ligne' | 'hors-ligne' }`,
+  émis juste après l'enregistrement et à chaque `connexion.prete`.
+  L'utilisateur est celui du socket : on ne peut annoncer que sa propre
+  présence ;
+- quand le **dernier** socket d'un utilisateur se ferme (app quittée,
+  plantage, réseau coupé), `hors-ligne` est diffusé aussitôt ;
+- serveur → **tous** les clients : `presence.changed` `{ userId, statut }`.
+  La présence est déjà publique pour tout utilisateur authentifié
+  (`GET /api/config-utilisateur/publiques`) ;
+- serveur → **nouveau** client, juste après sa connexion :
+  `presence.snapshot` `{ enLigne: string[] }`, les utilisateurs dont au moins
+  un socket a annoncé `en-ligne`. Un client qui arrive connaît ainsi tout de
+  suite les absents, y compris ceux partis juste avant lui.
+
+Le Frontend continue de sonder User-Config-Service toutes les 20 s pour
+réconcilier. Tant que son socket est connecté, la liste temps réel
+(instantané + `presence.changed`) décide qui est « en ligne » ; sans socket,
+un `hors-ligne` reçu en temps réel prime ~100 s, le temps que
+User-Config-Service constate lui-même l'absence de signe de vie.
+
+> L'instantané repose sur `fetchSockets()`, qui ne voit que les clients de
+> l'instance courante. Pour plusieurs instances de Message-Service, ajouter
+> l'adaptateur Redis de Socket.IO (`@socket.io/redis-adapter`).
+
+### Profils (alias, avatar, pseudo)
+
+- client → serveur : `profil.update` (sans données), émis après avoir
+  enregistré son alias, son avatar ou son pseudo. **Limité à un envoi par
+  socket toutes les 5 s** (`DELAI_MIN_PROFIL_MS`) : chaque diffusion fait
+  recharger ce profil à tous les clients, un socket ne doit pas pouvoir
+  provoquer une avalanche de requêtes. Les demandes rapprochées ne sont pas
+  perdues : une seule est diffusée à la fin de la fenêtre ;
+- serveur → **tous** les clients : `profil.changed` `{ userId }`. Chaque
+  client recharge ce profil public (User-Config-Service, Authentification) :
+  aucune donnée de profil ne transite par Message-Service.
+
+### Changements de serveur (Room-Service)
+
+Room-Service n'a ni Redis ni Socket.IO : après chaque changement (serveur,
+membres, invitations, salons), il appelle la route interne
+
+```http
+POST /api/internal/events
+x-internal-token: {INTERNAL_SERVICE_TOKEN}
+
+{ "serveurId": "…", "raison": "expulse", "cibleId": "…", "utilisateurIds": ["…"] }
+```
+
+(`raison` : `modifie`, `supprime`, `membres`, `expulse`, `invitation`,
+`salons`). Message-Service publie sur Redis (`serveur.change`) et chaque
+instance émet `serveur.change` `{ serveurId, raison, cibleId }` dans la room
+`user:<id>` de chaque destinataire. Serveur-API ne relaie pas `/api/internal`.
 
 ## Variables d'environnement
 
@@ -156,6 +249,8 @@ AUTH_SERVICE_URL=http://localhost:3001
 AUTH_SERVICE_TIMEOUT_MS=3000
 ROOM_SERVICE_URL=http://localhost:3003
 ROOM_SERVICE_TIMEOUT_MS=3000
+# Même valeur que dans Room-Service (route /api/internal/*).
+INTERNAL_SERVICE_TOKEN=changez-moi
 ```
 
 Dans Docker Compose, utiliser `postgres` et `redis` comme hostnames.
@@ -167,12 +262,14 @@ AUTH_SERVICE_URL=http://auth-service:3001
 ROOM_SERVICE_URL=http://room-service:3003
 ```
 
-> Note : `A26_5A6_01-Infra` (docker-compose.yml) doit encore être mis à jour
-> séparément, dans ce dépôt-là, pour injecter `ROOM_SERVICE_URL` dans le
-> conteneur `message-service`. Ce dépôt (`Message-Service`) ne peut pas le
-> faire lui-même.
+`A26_5A6_01-Infra` (docker-compose.yml) injecte `ROOM_SERVICE_URL` et
+`INTERNAL_SERVICE_TOKEN` dans le conteneur `message-service`.
 
 `CORS_ORIGINS` est une liste séparée par des virgules. Il n'y a plus de CORS réfléchi (`origin: true`). Les connexions WebSocket sans en-tête `Origin` restent acceptées volontairement afin de supporter les clients non-navigateurs (par exemple Electron/Socket.IO).
+
+### En production (`NODE_ENV=production`)
+
+Le service **refuse de démarrer** si `INTERNAL_SERVICE_TOKEN` fait moins de 32 caractères (la valeur de développement `chatvardage_internal_dev` en fait 24), ou si le mot de passe de `DATABASE_URL` / `REDIS_URL` est une valeur de développement de l'Infra (`message_service_dev`, `chatvardage_redis_dev`…) — voir `src/secrets-production.ts`. Le message d'erreur liste tous les problèmes d'un coup ; en développement, les valeurs par défaut de l'Infra restent acceptées. Générer de vraies valeurs, par ex. `openssl rand -hex 32`.
 
 ## Docker
 

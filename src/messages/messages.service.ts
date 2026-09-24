@@ -83,20 +83,53 @@ export class MessagesService {
   }
 
   async listConversations(userId: string): Promise<ConversationSummary[]> {
-    // On récupère tous les messages où l'utilisateur participe, du plus
-    // récent au plus ancien, puis on ne garde que la première occurrence
-    // (donc la plus récente) par interlocuteur. Comme la liste source est
-    // déjà triée par activité décroissante, la liste de conversations
-    // obtenue l'est également, sans requête de regroupement supplémentaire.
-    const messages = await this.prisma.privateMessage.findMany({
-      where: { OR: [{ senderId: userId }, { recipientId: userId }] },
+    // Ne charge PAS tout l'historique : coût proportionnel au nombre
+    // d'interlocuteurs, pas au nombre de messages (index
+    // senderId/recipientId/createdAt dans les deux sens).
+    // 1) Date du dernier message échangé avec chaque interlocuteur.
+    const [envoyes, recus] = await Promise.all([
+      this.prisma.privateMessage.groupBy({
+        by: ["recipientId"],
+        where: { senderId: userId },
+        _max: { createdAt: true },
+      }),
+      this.prisma.privateMessage.groupBy({
+        by: ["senderId"],
+        where: { recipientId: userId },
+        _max: { createdAt: true },
+      }),
+    ]);
+    const derniereDate = new Map<string, Date>();
+    const retenir = (autreId: string, date: Date | null) => {
+      const actuelle = derniereDate.get(autreId);
+      if (date && (!actuelle || date > actuelle)) {
+        derniereDate.set(autreId, date);
+      }
+    };
+    for (const ligne of envoyes)
+      retenir(ligne.recipientId, ligne._max.createdAt);
+    for (const ligne of recus) retenir(ligne.senderId, ligne._max.createdAt);
+    if (derniereDate.size === 0) return [];
+
+    // 2) Uniquement ces derniers messages (plusieurs possibles à la même
+    // milliseconde : départagés par id, comme dans history()).
+    const derniers = await this.prisma.privateMessage.findMany({
+      where: {
+        OR: [...derniereDate].map(([autreId, createdAt]) => ({
+          createdAt,
+          OR: [
+            { senderId: userId, recipientId: autreId },
+            { senderId: autreId, recipientId: userId },
+          ],
+        })),
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
 
     const seen = new Set<string>();
     const conversations: ConversationSummary[] = [];
 
-    for (const message of messages) {
+    for (const message of derniers) {
       const otherUserId =
         message.senderId === userId ? message.recipientId : message.senderId;
 

@@ -1,8 +1,11 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { verifierSecretsProduction } from "./secrets-production";
 
 async function bootstrap(): Promise<void> {
+  // Avant tout : pas de démarrage en production avec des secrets de dev.
+  verifierSecretsProduction();
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix("api");
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

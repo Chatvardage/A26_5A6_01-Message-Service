@@ -42,6 +42,20 @@ Pour recevoir les événements temps réel d'un salon, le client doit explicitem
 
 Contrairement à la room `user:<id>` (rejointe automatiquement à la connexion), les rooms `room:<roomId>` sont rejointes à la demande : un socket connecté qui n'a jamais émis `room-message.join` pour un salon donné ne recevra pas ses événements temps réel, même s'il est membre du salon côté Room-Service.
 
+
+### Perte d'accès : retrait automatique des rooms
+
+Les droits ne sont vérifiés qu'au `room-message.join`. Pour qu'un socket ne continue pas de recevoir les messages d'un salon dont il a perdu l'accès, chaque événement `serveur.change` venu de Room-Service déclenche une revérification (`revoquerAccesPerdus`), limitée aux salons **de ce serveur** déjà rejoints (mémorisés dans `socket.data.salons`) :
+
+| Raison | Sockets revérifiés |
+| --- | --- |
+| `expulse`, `membres` (départ, rôle modifié, arrivée) | ceux de l'utilisateur visé (`cibleId`) |
+| `salons` (salon rendu réservé aux modérateurs, supprimé) | ceux de tous les destinataires |
+| `supprime` (serveur supprimé) | ceux de tous les destinataires, retirés sans appel à Room-Service |
+| `modifie`, `invitation` | aucun |
+
+Si Room-Service refuse la lecture, répond 404 ou est indisponible, le socket quitte `room:<roomId>` et reçoit `room-message.revoked` `{ roomId }`. Le client oublie alors cette room et la rejoint de nouveau s'il la retrouve dans ses salons accessibles.
+
 ## Envoi via WebSocket
 
 `room-message.send` `{ roomId, content }` délègue directement à `RoomMessagesService.create()`, exactement comme `private-message.send` délègue à `MessagesService.create()`. L'appartenance au salon est donc revalidée à chaque envoi, indépendamment du fait que le socket ait ou non rejoint `room:<roomId>` au préalable.
@@ -58,7 +72,7 @@ Seul l'auteur original du message peut le modifier ou le supprimer (vérifié en
 
 L'événement `typing` `{ scope: 'room' | 'dm', targetId, isTyping }` est **éphémère** : il n'est jamais persisté, ni publié dans Redis, ni écrit en base. Le serveur le relaie directement (`socket.to(...).emit(...)`), sans garantie de livraison :
 
-- `scope: 'room'` -> relayé vers `room:<targetId>`
+- `scope: 'room'` -> relayé vers `room:<targetId>`, **seulement si le socket émetteur a rejoint cette room** (droits vérifiés au `room-message.join`) ; sinon l'événement est ignoré
 - `scope: 'dm'` -> relayé vers `user:<targetId>`
 
 Le payload réémis est `{ userId, scope, targetId, isTyping }`, où `userId` provient de l'identité authentifiée du socket émetteur (jamais du payload client).

@@ -3,7 +3,7 @@ import { RoomMessagesController } from "./room-messages.controller";
 describe("RoomMessagesController", () => {
   let service: any;
   let controller: RoomMessagesController;
-  const req: any = { auth: { id: "u1" } };
+  const req: any = { auth: { id: "u1", role: "utilisateur" } };
 
   beforeEach(() => {
     service = {
@@ -30,12 +30,14 @@ describe("RoomMessagesController", () => {
     expect(await controller.update(req, "r1", "m", { content: "y" })).toBe(1);
     expect(await controller.remove(req, "r1", "m")).toEqual({ deleted: true });
 
-    expect(service.create).toHaveBeenCalledWith("u1", "r1", { content: "x" });
-    expect(service.history).toHaveBeenCalledWith("u1", "r1", query);
-    expect(service.findOne).toHaveBeenCalledWith("u1", "r1", "m");
-    expect(service.update).toHaveBeenCalledWith("u1", "r1", "m", {
+    expect(service.create).toHaveBeenCalledWith(req.auth, "r1", {
+      content: "x",
+    });
+    expect(service.history).toHaveBeenCalledWith(req.auth, "r1", query);
+    expect(service.findOne).toHaveBeenCalledWith(req.auth, "r1", "m");
+    expect(service.update).toHaveBeenCalledWith(req.auth, "r1", "m", {
       content: "y",
     });
-    expect(service.remove).toHaveBeenCalledWith("u1", "r1", "m");
+    expect(service.remove).toHaveBeenCalledWith(req.auth, "r1", "m");
   });
 });

@@ -7,7 +7,7 @@ import {
 import { RoomMessage } from "@prisma/client";
 import { PrismaService } from "../prisma.service";
 import { RedisService } from "../redis.service";
-import { Room, RoomsClientService } from "../rooms/rooms-client.service";
+import { Acteur, RoomsClientService } from "../rooms/rooms-client.service";
 import { CreateRoomMessageDto } from "./dto/create-room-message.dto";
 import { RoomHistoryQueryDto } from "./dto/room-history-query.dto";
 import { UpdateRoomMessageDto } from "./dto/update-room-message.dto";
@@ -21,16 +21,22 @@ export class RoomMessagesService {
   ) {}
 
   async create(
-    authorId: string,
+    acteur: Acteur,
     roomId: string,
     dto: CreateRoomMessageDto,
   ): Promise<RoomMessage> {
-    const room = await this.rooms.getRoom(roomId);
-    this.assertMembership(room, authorId, "y envoyer un message");
+    const acces = await this.rooms.verifierAcces(roomId, acteur);
+    this.exigerLecture(acces.peutLire, "y envoyer un message");
+    // Salon lisible mais en écriture réservée (ex. #annonces).
+    if (!acces.peutEcrire) {
+      throw new ForbiddenException(
+        "Seuls les modérateurs peuvent écrire dans ce salon",
+      );
+    }
 
     // 1) PostgreSQL is the source of truth.
     const message = await this.prisma.roomMessage.create({
-      data: { roomId, authorId, content: dto.content },
+      data: { roomId, authorId: acteur.id, content: dto.content },
     });
 
     // 2) Only after a successful DB write do we publish the event.
@@ -39,12 +45,11 @@ export class RoomMessagesService {
   }
 
   async history(
-    userId: string,
+    acteur: Acteur,
     roomId: string,
     query: RoomHistoryQueryDto,
   ): Promise<RoomMessage[]> {
-    const room = await this.rooms.getRoom(roomId);
-    this.assertMembership(room, userId, "consulter ce contenu");
+    await this.verifierLecture(acteur, roomId);
 
     if (query.cursor) {
       const cursorMessage = await this.prisma.roomMessage.findFirst({
@@ -71,12 +76,11 @@ export class RoomMessagesService {
   }
 
   async findOne(
-    userId: string,
+    acteur: Acteur,
     roomId: string,
     id: string,
   ): Promise<RoomMessage> {
-    const room = await this.rooms.getRoom(roomId);
-    this.assertMembership(room, userId, "consulter ce contenu");
+    await this.verifierLecture(acteur, roomId);
 
     const message = await this.prisma.roomMessage.findUnique({
       where: { id },
@@ -88,18 +92,20 @@ export class RoomMessagesService {
   }
 
   async update(
-    authorId: string,
+    acteur: Acteur,
     roomId: string,
     id: string,
     dto: UpdateRoomMessageDto,
   ): Promise<RoomMessage> {
+    // Un membre expulsé (ou qui n'a plus accès) ne modifie plus ses messages.
+    await this.verifierLecture(acteur, roomId);
     const existing = await this.prisma.roomMessage.findUnique({
       where: { id },
     });
     if (!existing || existing.roomId !== roomId) {
       throw new NotFoundException("Message introuvable");
     }
-    if (existing.authorId !== authorId) {
+    if (existing.authorId !== acteur.id) {
       throw new ForbiddenException("Seul l'auteur peut modifier ce message");
     }
 
@@ -112,14 +118,15 @@ export class RoomMessagesService {
     return message;
   }
 
-  async remove(authorId: string, roomId: string, id: string): Promise<void> {
+  async remove(acteur: Acteur, roomId: string, id: string): Promise<void> {
+    await this.verifierLecture(acteur, roomId);
     const existing = await this.prisma.roomMessage.findUnique({
       where: { id },
     });
     if (!existing || existing.roomId !== roomId) {
       throw new NotFoundException("Message introuvable");
     }
-    if (existing.authorId !== authorId) {
+    if (existing.authorId !== acteur.id) {
       throw new ForbiddenException("Seul l'auteur peut supprimer ce message");
     }
 
@@ -132,8 +139,13 @@ export class RoomMessagesService {
     });
   }
 
-  private assertMembership(room: Room, userId: string, verb: string): void {
-    if (!room.membreIds.includes(userId)) {
+  private async verifierLecture(acteur: Acteur, roomId: string) {
+    const acces = await this.rooms.verifierAcces(roomId, acteur);
+    this.exigerLecture(acces.peutLire, "consulter ce contenu");
+  }
+
+  private exigerLecture(peutLire: boolean, verb: string): void {
+    if (!peutLire) {
       throw new ForbiddenException(
         `Vous devez être membre du salon pour ${verb}`,
       );

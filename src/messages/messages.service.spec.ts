@@ -22,6 +22,7 @@ describe("MessagesService", () => {
       privateMessage: {
         create: jest.fn(),
         findMany: jest.fn(),
+        groupBy: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -79,52 +80,99 @@ describe("MessagesService", () => {
 
     expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
   });
-  it("returns an empty conversation list when the user has no messages", async () => {
-    prisma.privateMessage.findMany.mockResolvedValue([]);
+  it("returns an empty conversation list without loading any message", async () => {
     await expect(service.listConversations("u1")).resolves.toEqual([]);
-    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { OR: [{ senderId: "u1" }, { recipientId: "u1" }] },
-      }),
-    );
+    expect(prisma.privateMessage.groupBy).toHaveBeenCalledWith({
+      by: ["recipientId"],
+      where: { senderId: "u1" },
+      _max: { createdAt: true },
+    });
+    expect(prisma.privateMessage.groupBy).toHaveBeenCalledWith({
+      by: ["senderId"],
+      where: { recipientId: "u1" },
+      _max: { createdAt: true },
+    });
+    expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
+  });
+
+  it("only fetches the last message exchanged with each counterpart", async () => {
+    const jan1 = new Date("2026-01-01");
+    const jan2 = new Date("2026-01-02");
+    const jan3 = new Date("2026-01-03");
+    // Envoyés : dernier à u2 le 1er, à u3 le 2. Reçus : de u2 le 3 (plus
+    // récent que l'envoi), de u3 le 1er (plus ancien), et une date nulle.
+    prisma.privateMessage.groupBy
+      .mockResolvedValueOnce([
+        { recipientId: "u2", _max: { createdAt: jan1 } },
+        { recipientId: "u3", _max: { createdAt: jan2 } },
+      ])
+      .mockResolvedValueOnce([
+        { senderId: "u2", _max: { createdAt: jan3 } },
+        { senderId: "u3", _max: { createdAt: jan1 } },
+        { senderId: "u4", _max: { createdAt: null } },
+      ]);
+    prisma.privateMessage.findMany.mockResolvedValue([]);
+
+    await service.listConversations("u1");
+
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          {
+            createdAt: jan3,
+            OR: [
+              { senderId: "u1", recipientId: "u2" },
+              { senderId: "u2", recipientId: "u1" },
+            ],
+          },
+          {
+            createdAt: jan2,
+            OR: [
+              { senderId: "u1", recipientId: "u3" },
+              { senderId: "u3", recipientId: "u1" },
+            ],
+          },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
   });
 
   it("lists one conversation per counterpart, most recent activity first", async () => {
-    const newestWithU2 = {
+    const date = new Date("2026-01-03");
+    const withU2 = {
       id: "m3",
       senderId: "u2",
       recipientId: "u1",
       content: "yo",
-      createdAt: new Date("2026-01-03"),
-      updatedAt: new Date("2026-01-03"),
+      createdAt: date,
+      updatedAt: date,
     };
-    const newestWithU3 = {
-      id: "m2",
+    // Même milliseconde que withU2 mais id plus petit : départagé par l'ordre
+    // (createdAt desc, id desc) de la requête.
+    const sameMsWithU2 = { ...withU2, id: "m2", content: "doublon" };
+    const withU3 = {
+      id: "m1",
       senderId: "u1",
       recipientId: "u3",
       content: "hey",
       createdAt: new Date("2026-01-02"),
       updatedAt: new Date("2026-01-02"),
     };
-    const olderWithU2 = {
-      id: "m1",
-      senderId: "u1",
-      recipientId: "u2",
-      content: "salut",
-      createdAt: new Date("2026-01-01"),
-      updatedAt: new Date("2026-01-01"),
-    };
-    // findMany is mocked to already return newest-first, matching the
-    // orderBy passed to Prisma.
+    prisma.privateMessage.groupBy
+      .mockResolvedValueOnce([
+        { recipientId: "u3", _max: { createdAt: withU3.createdAt } },
+      ])
+      .mockResolvedValueOnce([{ senderId: "u2", _max: { createdAt: date } }]);
     prisma.privateMessage.findMany.mockResolvedValue([
-      newestWithU2,
-      newestWithU3,
-      olderWithU2,
+      withU2,
+      sameMsWithU2,
+      withU3,
     ]);
 
     await expect(service.listConversations("u1")).resolves.toEqual([
-      { otherUserId: "u2", lastMessage: newestWithU2 },
-      { otherUserId: "u3", lastMessage: newestWithU3 },
+      { otherUserId: "u2", lastMessage: withU2 },
+      { otherUserId: "u3", lastMessage: withU3 },
     ]);
   });
 

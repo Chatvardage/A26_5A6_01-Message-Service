@@ -28,7 +28,7 @@ export class RoomMessagesController {
     @Param("roomId") roomId: string,
     @Body() dto: CreateRoomMessageDto,
   ): Promise<RoomMessage> {
-    return this.roomMessages.create(req.auth.id, roomId, dto);
+    return this.roomMessages.create(req.auth, roomId, dto);
   }
 
   @Get(":roomId/history")
@@ -37,7 +37,7 @@ export class RoomMessagesController {
     @Param("roomId") roomId: string,
     @Query() query: RoomHistoryQueryDto,
   ): Promise<RoomMessage[]> {
-    return this.roomMessages.history(req.auth.id, roomId, query);
+    return this.roomMessages.history(req.auth, roomId, query);
   }
 
   @Get(":roomId/:id")
@@ -46,7 +46,7 @@ export class RoomMessagesController {
     @Param("roomId") roomId: string,
     @Param("id") id: string,
   ): Promise<RoomMessage> {
-    return this.roomMessages.findOne(req.auth.id, roomId, id);
+    return this.roomMessages.findOne(req.auth, roomId, id);
   }
 
   @Patch(":roomId/:id")
@@ -56,7 +56,7 @@ export class RoomMessagesController {
     @Param("id") id: string,
     @Body() dto: UpdateRoomMessageDto,
   ): Promise<RoomMessage> {
-    return this.roomMessages.update(req.auth.id, roomId, id, dto);
+    return this.roomMessages.update(req.auth, roomId, id, dto);
   }
 
   @Delete(":roomId/:id")
@@ -65,7 +65,7 @@ export class RoomMessagesController {
     @Param("roomId") roomId: string,
     @Param("id") id: string,
   ): Promise<{ deleted: true }> {
-    await this.roomMessages.remove(req.auth.id, roomId, id);
+    await this.roomMessages.remove(req.auth, roomId, id);
     return { deleted: true };
   }
 }

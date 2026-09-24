@@ -1,0 +1,103 @@
+import {
+  ExecutionContext,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { EvenementServeurDto } from "./evenement-serveur.dto";
+import { InternalEventsController } from "./internal-events.controller";
+import { InternalTokenGuard } from "./internal-token.guard";
+
+const contexte = (enTete?: string | string[]) =>
+  ({
+    switchToHttp: () => ({
+      getRequest: () => ({
+        headers: enTete === undefined ? {} : { "x-internal-token": enTete },
+      }),
+    }),
+  }) as unknown as ExecutionContext;
+
+describe("routes internes", () => {
+  const ancien = process.env.INTERNAL_SERVICE_TOKEN;
+  afterEach(() => {
+    process.env.INTERNAL_SERVICE_TOKEN = ancien;
+  });
+
+  it("échoue fermé sans INTERNAL_SERVICE_TOKEN", () => {
+    delete process.env.INTERNAL_SERVICE_TOKEN;
+    expect(() => new InternalTokenGuard().canActivate(contexte("x"))).toThrow(
+      ServiceUnavailableException,
+    );
+  });
+
+  it.each([undefined, "court", "secret-faux-12345", ["secret-interne-12"]])(
+    "refuse le jeton %p",
+    (enTete) => {
+      process.env.INTERNAL_SERVICE_TOKEN = "secret-interne-12";
+      expect(() =>
+        new InternalTokenGuard().canActivate(contexte(enTete)),
+      ).toThrow(UnauthorizedException);
+    },
+  );
+
+  it("accepte le bon jeton", () => {
+    process.env.INTERNAL_SERVICE_TOKEN = "secret-interne-12";
+    expect(
+      new InternalTokenGuard().canActivate(contexte("secret-interne-12")),
+    ).toBe(true);
+  });
+
+  it("publie l'événement de serveur sur Redis, sans doublon de destinataire", async () => {
+    const redis = { publish: jest.fn().mockResolvedValue(1) };
+    const controller = new InternalEventsController(redis as any);
+
+    await expect(
+      controller.recevoir({
+        serveurId: "s1",
+        raison: "expulse",
+        cibleId: "u3",
+        utilisateurIds: ["u1", "u3", "u1"],
+      }),
+    ).resolves.toEqual({ accepte: true });
+    await controller.recevoir({
+      serveurId: "s1",
+      raison: "salons",
+      utilisateurIds: ["u1"],
+    });
+
+    expect(redis.publish.mock.calls).toEqual([
+      [
+        "serveur.change",
+        {
+          serveurId: "s1",
+          raison: "expulse",
+          cibleId: "u3",
+          utilisateurIds: ["u1", "u3"],
+        },
+      ],
+      [
+        "serveur.change",
+        {
+          serveurId: "s1",
+          raison: "salons",
+          cibleId: null,
+          utilisateurIds: ["u1"],
+        },
+      ],
+    ]);
+  });
+
+  it("valide le corps de l'événement", async () => {
+    const erreurs = async (corps: object) =>
+      (await validate(plainToInstance(EvenementServeurDto, corps))).map(
+        (e) => e.property,
+      );
+    expect(
+      await erreurs({ serveurId: "s", raison: "membres", utilisateurIds: [] }),
+    ).toEqual([]);
+    expect(
+      await erreurs({ serveurId: "", raison: "piratage", utilisateurIds: [1] }),
+    ).toEqual(["serveurId", "raison", "utilisateurIds"]);
+  });
+});
