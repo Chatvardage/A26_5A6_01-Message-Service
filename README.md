@@ -132,7 +132,7 @@ Création :
 }
 ```
 
-`content` est obligatoire et limité à 4000 caractères, en REST comme en WebSocket. Contrairement aux DM, la lecture (`GET`) n'est pas limitée à l'auteur : tout membre du salon peut consulter tous les messages du salon. Seul l'auteur peut modifier ou supprimer son propre message.
+`content` est obligatoire et limité à 4000 caractères, en REST comme en WebSocket. Contrairement aux DM, la lecture (`GET`) n'est pas limitée à l'auteur : tout membre du salon peut consulter tous les messages du salon. Seul l'auteur peut modifier son message ; il peut le supprimer, tout comme un **modérateur du serveur** (ou son propriétaire, un admin) — droit calculé par Room-Service (`peutModerer` de la route d'accès).
 
 ### Limite d'envoi
 
@@ -270,6 +270,19 @@ vite la taille maximale d'une requête (100 Ko, soit ~2 500 identifiants).
 L'événement est alors émis à **tous** les clients connectés ; pour `salons`
 et `supprime`, les accès de tous les sockets à ce serveur sont revérifiés
 (pour `membres` / `expulse`, seulement la personne visée).
+
+### Effacement de données (Room-Service, Authentification)
+
+Deux routes internes (même `x-internal-token`), idempotentes, effacent les
+messages dont le contexte n'existe plus :
+
+| Méthode | Route | Appelée par | Effet |
+|---|---|---|---|
+| POST | `/api/internal/salons-supprimes` `{ salonIds }` (500 au plus) | Room-Service, après la suppression d'un salon ou d'un serveur | Messages de ces salons. Réponse `{ messagesSalons }` |
+| DELETE | `/api/internal/users/:userId` | Authentification, après la suppression d'un compte | Ses conversations privées (dans les deux sens) et les messages de salon qu'il a écrits. Réponse `{ messagesPrives, messagesSalons }` |
+
+Aucun événement temps réel n'est émis : les clients ouverts voient les
+messages effacés disparaître au prochain chargement.
 
 ## Variables d'environnement
 

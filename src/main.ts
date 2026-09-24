@@ -10,6 +10,8 @@ async function bootstrap(): Promise<void> {
     urlsAvecMotDePasse: ['DATABASE_URL', 'REDIS_URL'],
   });
   const app = await NestFactory.create(AppModule);
+  // SIGTERM (docker stop) : fermeture propre (Prisma, Redis, minuteurs).
+  app.enableShutdownHooks();
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')

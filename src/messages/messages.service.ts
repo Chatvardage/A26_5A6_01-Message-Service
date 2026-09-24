@@ -145,6 +145,18 @@ export class MessagesService {
     return conversations;
   }
 
+  /**
+   * Compte supprimé (route interne) : ses conversations privées, dans les
+   * deux sens (son interlocuteur ne peut plus lui répondre, et les messages
+   * reçus contiennent des données le concernant).
+   */
+  async supprimerUtilisateur(userId: string): Promise<number> {
+    const { count } = await this.prisma.privateMessage.deleteMany({
+      where: { OR: [{ senderId: userId }, { recipientId: userId }] },
+    });
+    return count;
+  }
+
   async findOne(userId: string, id: string): Promise<PrivateMessage> {
     const message = await this.prisma.privateMessage.findUnique({
       where: { id },

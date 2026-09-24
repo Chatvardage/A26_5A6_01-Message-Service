@@ -123,16 +123,20 @@ export class RoomMessagesService {
     return message;
   }
 
+  /** L'auteur, ou un modérateur du serveur (propriétaire, admin). */
   async remove(acteur: Acteur, roomId: string, id: string): Promise<void> {
-    await this.verifierLecture(acteur, roomId);
+    const acces = await this.rooms.verifierAcces(roomId, acteur);
+    this.exigerLecture(acces.peutLire, 'consulter ce contenu');
     const existing = await this.prisma.roomMessage.findUnique({
       where: { id },
     });
     if (!existing || existing.roomId !== roomId) {
       throw new NotFoundException('Message introuvable');
     }
-    if (existing.authorId !== acteur.id) {
-      throw new ForbiddenException("Seul l'auteur peut supprimer ce message");
+    if (existing.authorId !== acteur.id && !acces.peutModerer) {
+      throw new ForbiddenException(
+        "Seuls l'auteur et les modérateurs peuvent supprimer ce message",
+      );
     }
 
     await this.prisma.roomMessage.delete({ where: { id } });
@@ -142,6 +146,22 @@ export class RoomMessagesService {
       roomId: existing.roomId,
       authorId: existing.authorId,
     });
+  }
+
+  /** Salons supprimés dans Room-Service (route interne) : leurs messages. */
+  async purgerSalons(salonIds: string[]): Promise<number> {
+    const { count } = await this.prisma.roomMessage.deleteMany({
+      where: { roomId: { in: salonIds } },
+    });
+    return count;
+  }
+
+  /** Compte supprimé (route interne) : les messages qu'il a écrits. */
+  async supprimerAuteur(authorId: string): Promise<number> {
+    const { count } = await this.prisma.roomMessage.deleteMany({
+      where: { authorId },
+    });
+    return count;
   }
 
   private async verifierLecture(acteur: Acteur, roomId: string) {

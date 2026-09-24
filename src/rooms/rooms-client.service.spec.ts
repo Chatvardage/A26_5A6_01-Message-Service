@@ -18,6 +18,7 @@ describe('RoomsClientService', () => {
     estMembre: true,
     peutLire: true,
     peutEcrire: false,
+    peutModerer: true,
   };
   let service: RoomsClientService;
 
@@ -135,11 +136,22 @@ describe('RoomsClientService', () => {
     { ...acces, estMembre: 'oui' },
     { ...acces, peutLire: null },
     { ...acces, peutEcrire: 1 },
+    { ...acces, peutModerer: 'oui' },
   ])('maps an invalid access payload %# to a bad gateway', async (payload) => {
     repondre({ ok: true, status: 200, json: async () => payload });
     await expect(service.verifierAcces('r1', acteur)).rejects.toBeInstanceOf(
       BadGatewayException,
     );
+  });
+
+  it('peutModerer absent (Room-Service plus ancien) : faux', async () => {
+    const ancien: Partial<typeof acces> = { ...acces };
+    delete ancien.peutModerer;
+    repondre({ ok: true, status: 200, json: async () => ancien });
+    await expect(service.verifierAcces('r1', acteur)).resolves.toEqual({
+      ...ancien,
+      peutModerer: false,
+    });
   });
 
   describe('cache des accès', () => {

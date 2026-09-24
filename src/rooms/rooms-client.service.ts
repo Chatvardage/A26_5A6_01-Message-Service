@@ -29,6 +29,9 @@ export type AccesSalon = {
   estMembre: boolean;
   peutLire: boolean;
   peutEcrire: boolean;
+  /** Modérateur du serveur (ou propriétaire, admin) : peut supprimer les
+   * messages des autres. Absent d'un Room-Service plus ancien : faux. */
+  peutModerer: boolean;
 };
 
 export type Acteur = Pick<AuthenticatedUser, 'id' | 'role'>;
@@ -137,11 +140,20 @@ export class RoomsClientService {
       typeof acces.serveurId !== 'string' ||
       typeof acces.estMembre !== 'boolean' ||
       typeof acces.peutLire !== 'boolean' ||
-      typeof acces.peutEcrire !== 'boolean'
+      typeof acces.peutEcrire !== 'boolean' ||
+      (acces.peutModerer !== undefined &&
+        typeof acces.peutModerer !== 'boolean')
     ) {
       throw new BadGatewayException('Réponse invalide du service des salons');
     }
 
-    return acces as AccesSalon;
+    return {
+      salonId: acces.salonId,
+      serveurId: acces.serveurId,
+      estMembre: acces.estMembre,
+      peutLire: acces.peutLire,
+      peutEcrire: acces.peutEcrire,
+      peutModerer: acces.peutModerer ?? false,
+    };
   }
 }

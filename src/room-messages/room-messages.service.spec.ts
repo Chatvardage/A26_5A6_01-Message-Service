@@ -23,6 +23,7 @@ describe('RoomMessagesService', () => {
     estMembre: true,
     peutLire: true,
     peutEcrire: true,
+    peutModerer: false,
   };
   const lectureSeule = { ...lecteurEcrivain, peutEcrire: false };
   const sansAcces = {
@@ -47,6 +48,7 @@ describe('RoomMessagesService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 3 }),
       },
     };
     redis = { publish: jest.fn() };
@@ -237,6 +239,45 @@ describe('RoomMessagesService', () => {
     await expect(
       service.remove(acteur('u2'), 'r1', 'm1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('a moderator can remove another member’s message', async () => {
+    rooms.verifierAcces.mockResolvedValue({
+      ...lecteurEcrivain,
+      peutModerer: true,
+    });
+    prisma.roomMessage.findUnique.mockResolvedValue(msg);
+    prisma.roomMessage.delete.mockResolvedValue(msg);
+    await service.remove(acteur('modo'), 'r1', 'm1');
+    expect(prisma.roomMessage.delete).toHaveBeenCalledWith({
+      where: { id: 'm1' },
+    });
+    expect(redis.publish).toHaveBeenCalledWith(
+      'room-message.deleted',
+      expect.objectContaining({ id: 'm1' }),
+    );
+  });
+
+  it('a moderator still cannot edit another member’s message', async () => {
+    rooms.verifierAcces.mockResolvedValue({
+      ...lecteurEcrivain,
+      peutModerer: true,
+    });
+    prisma.roomMessage.findUnique.mockResolvedValue(msg);
+    await expect(
+      service.update(acteur('modo'), 'r1', 'm1', { content: 'x' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('purges the messages of deleted rooms, and those of a deleted author', async () => {
+    await expect(service.purgerSalons(['r1', 'r2'])).resolves.toBe(3);
+    expect(prisma.roomMessage.deleteMany).toHaveBeenCalledWith({
+      where: { roomId: { in: ['r1', 'r2'] } },
+    });
+    await expect(service.supprimerAuteur('u1')).resolves.toBe(3);
+    expect(prisma.roomMessage.deleteMany).toHaveBeenLastCalledWith({
+      where: { authorId: 'u1' },
+    });
   });
 
   it('deletes then publishes routed event', async () => {

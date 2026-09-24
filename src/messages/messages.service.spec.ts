@@ -28,6 +28,7 @@ describe('MessagesService', () => {
         groupBy: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         findUnique: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 4 }),
         update: jest.fn(),
         delete: jest.fn(),
       },
@@ -256,6 +257,13 @@ describe('MessagesService', () => {
       id: 'm1',
       senderId: 'u1',
       recipientId: 'u2',
+    });
+  });
+
+  it('deletes both directions of a deleted user’s conversations', async () => {
+    await expect(service.supprimerUtilisateur('u1')).resolves.toBe(4);
+    expect(prisma.privateMessage.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ senderId: 'u1' }, { recipientId: 'u1' }] },
     });
   });
 });
