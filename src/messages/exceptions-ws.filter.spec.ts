@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ExceptionsWsFilter } from './exceptions-ws.filter';
 
 describe('ExceptionsWsFilter', () => {
@@ -52,6 +53,33 @@ describe('ExceptionsWsFilter', () => {
       });
     },
   );
+
+  it('journalise une erreur 5xx côté serveur, pas une 4xx', () => {
+    const erreur = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const { client, host } = hote();
+    const filtre = new ExceptionsWsFilter();
+
+    filtre.catch(new NotFoundException('Destinataire introuvable'), host);
+    expect(erreur).not.toHaveBeenCalled();
+
+    filtre.catch(
+      new ServiceUnavailableException(
+        "Service d'authentification indisponible",
+      ),
+      host,
+    );
+    expect(erreur).toHaveBeenCalledWith(
+      expect.stringContaining('private-message.send : 503'),
+    );
+    expect(client.emit).toHaveBeenLastCalledWith('exception', {
+      status: 'error',
+      statusCode: 503,
+      message: "Service d'authentification indisponible",
+    });
+    erreur.mockRestore();
+  });
 
   it('laisse le comportement par défaut pour les autres erreurs', () => {
     const { client, host } = hote();

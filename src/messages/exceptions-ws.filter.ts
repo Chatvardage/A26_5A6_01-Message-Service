@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, HttpException } from '@nestjs/common';
+import { ArgumentsHost, Catch, HttpException, Logger } from '@nestjs/common';
 import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
 
 /**
@@ -8,15 +8,23 @@ import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
  * partait au client comme « Internal server error » et était journalisée
  * comme une erreur serveur. Elle est convertie ici : le client reçoit
  * l'événement `exception` `{ status: 'error', statusCode, message }`, avec le
- * même code et le même message qu'en REST. Le reste suit le comportement par
- * défaut.
+ * même code et le même message qu'en REST. Une erreur 5xx (service appelé
+ * indisponible…) reste journalisée côté serveur, comme avant. Le reste suit
+ * le comportement par défaut.
  */
 @Catch()
 export class ExceptionsWsFilter extends BaseWsExceptionFilter {
+  private readonly journal = new Logger(ExceptionsWsFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     if (!(exception instanceof HttpException)) {
       super.catch(exception, host);
       return;
+    }
+    if (exception.getStatus() >= 500) {
+      this.journal.error(
+        `${host.switchToWs().getPattern()} : ${exception.getStatus()} ${exception.message}`,
+      );
     }
     const reponse = exception.getResponse();
     const message =
