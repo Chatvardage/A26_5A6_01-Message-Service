@@ -13,6 +13,7 @@ import {
   Acteur,
   RoomsClientService,
 } from '../rooms/rooms-client.service';
+import { CreateAdminRoomMessageDto } from './dto/create-admin-room-message.dto';
 import { CreateRoomMessageDto } from './dto/create-room-message.dto';
 import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
 import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
@@ -49,6 +50,28 @@ export class RoomMessagesService {
     });
 
     // 2) L'événement n'est publié qu'après l'écriture réussie en base.
+    await this.redis.publish('room-message.created', message);
+    return message;
+  }
+
+  async createForAdmin(
+    acteur: Acteur,
+    roomId: string,
+    dto: CreateAdminRoomMessageDto,
+  ): Promise<RoomMessage> {
+    this.limiteEnvoi.verifier(dto.authorId);
+    const acces = await this.rooms.verifierAcces(roomId, acteur);
+    this.exigerLecture(acces.peutLire, 'y envoyer un message');
+    if (!acces.peutEcrire) {
+      throw new ForbiddenException(
+        'Seuls les modérateurs peuvent écrire dans ce salon',
+      );
+    }
+
+    const message = await this.prisma.roomMessage.create({
+      data: { roomId, authorId: dto.authorId, content: dto.content },
+    });
+
     await this.redis.publish('room-message.created', message);
     return message;
   }

@@ -72,6 +72,36 @@ describe('RoomMessagesService', () => {
     expect(limiteEnvoi.verifier).toHaveBeenCalledWith('u1');
   });
 
+  it('creates an admin message with the selected author then publishes', async () => {
+    prisma.roomMessage.create.mockResolvedValue(msg);
+    redis.publish.mockResolvedValue(1);
+
+    await expect(
+      service.createForAdmin(acteur('admin'), 'r1', {
+        authorId: 'u1',
+        content: 'hi',
+      }),
+    ).resolves.toBe(msg);
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('admin'));
+    expect(prisma.roomMessage.create).toHaveBeenCalledWith({
+      data: { roomId: 'r1', authorId: 'u1', content: 'hi' },
+    });
+    expect(redis.publish).toHaveBeenCalledWith('room-message.created', msg);
+    expect(limiteEnvoi.verifier).toHaveBeenCalledWith('u1');
+  });
+
+  it('rejects an admin message in a read-only room', async () => {
+    rooms.verifierAcces.mockResolvedValue(lectureSeule);
+
+    await expect(
+      service.createForAdmin(acteur('admin'), 'r1', {
+        authorId: 'u1',
+        content: 'hi',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.roomMessage.create).not.toHaveBeenCalled();
+  });
+
   it('rejects create over the send limit without calling Room-Service', async () => {
     limiteEnvoi.verifier.mockImplementation(() => {
       throw new HttpException('trop', HttpStatus.TOO_MANY_REQUESTS);

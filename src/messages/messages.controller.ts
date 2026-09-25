@@ -62,9 +62,7 @@ export class MessagesController {
   }
 
   @Get('admin')
-  findAllForAdmin(
-    @Req() req: AuthenticatedRequest,
-  ): Promise<PrivateMessage[]> {
+  findAllForAdmin(@Req() req: AuthenticatedRequest): Promise<PrivateMessage[]> {
     this.requireAdmin(req);
     return this.messages.findAllForAdmin();
   }

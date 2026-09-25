@@ -179,7 +179,7 @@ export class MessagesService {
 
   findAllForAdmin(): Promise<PrivateMessage[]> {
     return this.prisma.privateMessage.findMany({
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 100,
     });
   }
@@ -232,10 +232,10 @@ export class MessagesService {
     const existing = await this.prisma.privateMessage.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException("Message introuvable");
+    if (!existing) throw new NotFoundException('Message introuvable');
 
     await this.prisma.privateMessage.delete({ where: { id } });
-    await this.redis.publish("private-message.deleted", {
+    await this.redis.publish('private-message.deleted', {
       id: existing.id,
       senderId: existing.senderId,
       recipientId: existing.recipientId,

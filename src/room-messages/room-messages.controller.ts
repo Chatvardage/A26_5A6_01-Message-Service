@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -12,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { RoomMessage } from '@prisma/client';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CreateAdminRoomMessageDto } from './dto/create-admin-room-message.dto';
 import { CreateRoomMessageDto } from './dto/create-room-message.dto';
 import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
 import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
@@ -29,6 +31,16 @@ export class RoomMessagesController {
     @Body() dto: CreateRoomMessageDto,
   ): Promise<RoomMessage> {
     return this.roomMessages.create(req.auth, roomId, dto);
+  }
+
+  @Post(':roomId/admin')
+  createForAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Param('roomId') roomId: string,
+    @Body() dto: CreateAdminRoomMessageDto,
+  ): Promise<RoomMessage> {
+    this.requireAdmin(req);
+    return this.roomMessages.createForAdmin(req.auth, roomId, dto);
   }
 
   @Get(':roomId/history')
@@ -67,5 +79,11 @@ export class RoomMessagesController {
   ): Promise<{ deleted: true }> {
     await this.roomMessages.remove(req.auth, roomId, id);
     return { deleted: true };
+  }
+
+  private requireAdmin(req: AuthenticatedRequest): void {
+    if (req.auth.role !== 'admin') {
+      throw new ForbiddenException('Role admin requis');
+    }
   }
 }

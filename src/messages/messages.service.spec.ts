@@ -223,6 +223,31 @@ describe('MessagesService', () => {
     prisma.privateMessage.findUnique.mockResolvedValue(msg);
     await expect(service.findOne('u2', 'm1')).resolves.toBe(msg);
   });
+  it('lists messages and deletes a message for an administrator', async () => {
+    prisma.privateMessage.findMany.mockResolvedValue([msg]);
+    prisma.privateMessage.findUnique.mockResolvedValue(msg);
+    prisma.privateMessage.delete.mockResolvedValue(msg);
+
+    await expect(service.findAllForAdmin()).resolves.toEqual([msg]);
+    await expect(service.removeForAdmin('m1')).resolves.toBeUndefined();
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 100,
+    });
+    expect(redis.publish).toHaveBeenCalledWith('private-message.deleted', {
+      id: 'm1',
+      senderId: 'u1',
+      recipientId: 'u2',
+    });
+  });
+  it('refuses to delete an unknown message for an administrator', async () => {
+    prisma.privateMessage.findUnique.mockResolvedValue(null);
+
+    await expect(service.removeForAdmin('inconnu')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(prisma.privateMessage.delete).not.toHaveBeenCalled();
+  });
   it('update not found', async () => {
     prisma.privateMessage.findUnique.mockResolvedValue(null);
     await expect(
