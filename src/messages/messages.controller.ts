@@ -17,7 +17,7 @@ import { extraireJetonBearer } from '../partage/client-auth';
 import { ConversationSummary } from './dto/conversation-summary.dto';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
-import { HistoryQueryDto } from './dto/history-query.dto';
+import { AdminHistoryQueryDto, HistoryQueryDto } from './dto/history-query.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { MessagesService } from './messages.service';
 
@@ -45,10 +45,10 @@ export class MessagesController {
     @Body() dto: CreateAdminMessageDto,
   ): Promise<PrivateMessage> {
     this.requireAdmin(req);
-    return this.messages.create(
-      dto.senderId,
+    return this.messages.createForAdmin(
       dto,
       extraireJetonBearer(req.headers.authorization),
+      req.auth.id,
     );
   }
 
@@ -62,9 +62,12 @@ export class MessagesController {
   }
 
   @Get('admin')
-  findAllForAdmin(@Req() req: AuthenticatedRequest): Promise<PrivateMessage[]> {
+  findAllForAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: AdminHistoryQueryDto,
+  ): Promise<PrivateMessage[]> {
     this.requireAdmin(req);
-    return this.messages.findAllForAdmin();
+    return this.messages.findAllForAdmin(query);
   }
 
   @Delete('admin/:id')
@@ -73,7 +76,7 @@ export class MessagesController {
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
     this.requireAdmin(req);
-    await this.messages.removeForAdmin(id);
+    await this.messages.removeForAdmin(id, req.auth.id);
     return { deleted: true };
   }
 

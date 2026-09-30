@@ -82,8 +82,11 @@ du Frontend.
 - `GET /api/messages/:id` — récupérer un DM auquel l'utilisateur participe
 - `PATCH /api/messages/:id` — modifier son propre DM
 - `DELETE /api/messages/:id` — supprimer son propre DM
-- `GET /api/messages/admin` — lister les 100 messages les plus recents (admin requis)
-- `DELETE /api/messages/admin/:id` — supprimer un message (admin requis)
+- `POST /api/messages/admin` — créer un DM au nom d'un utilisateur existant (admin requis ; corps `{ "senderId": "uuid", "recipientId": "uuid", "content": "..." }`)
+- `GET /api/messages/admin?limit=50&cursor=<messageId>&userId=<uuid>` — lister les DM du plus récent au plus ancien (admin requis ; limite 1..100, 50 par défaut ; `cursor` et `userId` facultatifs, `userId` filtre les messages envoyés ou reçus)
+- `DELETE /api/messages/admin/:id` — supprimer un DM (admin requis)
+
+Les créations et suppressions admin consignent l'identifiant de l'admin et du message dans les journaux applicatifs, sans son contenu. Une création admin exige que l'expéditeur et le destinataire existent auprès d'Authentification. La limite d'envoi reste appliquée à l'expéditeur désigné, pas à l'admin.
 
 Le destinataire d'un DM (REST ou `private-message.send`) doit exister : Message-Service le vérifie auprès d'Authentification (`GET /api/users/lookup`, avec le jeton de l'expéditeur) et répond **404 « Destinataire introuvable »** sinon ; 503 si Authentification ne répond pas (échec fermé). Un destinataire trouvé est mémorisé 10 minutes (un seul appel par conversation active) ; un compte supprimé est oublié dès que la route interne `DELETE /api/internal/users/:userId` est appelée.
 
@@ -123,6 +126,7 @@ Création :
 ### Messages de salon (channels)
 
 - `POST /api/messages/rooms/:roomId` — créer un message de salon (JWT requis, membre du salon requis)
+- `POST /api/messages/rooms/:roomId/admin` — créer un message au nom d'un utilisateur (admin requis ; corps `{ "authorId": "uuid", "content": "..." }`). L'admin doit pouvoir écrire dans le salon ; l'auteur doit exister, en être membre et pouvoir y écrire. La création est journalisée avec l'ID admin, l'ID du message, le salon et l'auteur, sans contenu.
 - `GET /api/messages/rooms/:roomId/history?limit=50&cursor=<messageId>` — historique paginé (JWT requis, membre du salon requis, limite 1..100)
 - `GET /api/messages/rooms/:roomId/:id` — récupérer un message du salon (n'importe quel membre du salon, pas seulement l'auteur)
 - `PATCH /api/messages/rooms/:roomId/:id` — modifier son propre message de salon

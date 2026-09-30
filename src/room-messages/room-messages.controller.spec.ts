@@ -5,7 +5,10 @@ describe('RoomMessagesController', () => {
   let service: any;
   let controller: RoomMessagesController;
   const req: any = { auth: { id: 'u1', role: 'utilisateur' } };
-  const adminReq: any = { auth: { id: 'admin', role: 'admin' } };
+  const adminReq: any = {
+    auth: { id: 'admin', role: 'admin' },
+    headers: { authorization: 'Bearer jwt-admin' },
+  };
 
   beforeEach(() => {
     service = {
@@ -28,10 +31,12 @@ describe('RoomMessagesController', () => {
         content: 'x',
       }),
     ).resolves.toBe(1);
-    expect(service.createForAdmin).toHaveBeenCalledWith(adminReq.auth, 'r1', {
-      authorId: 'u1',
-      content: 'x',
-    });
+    expect(service.createForAdmin).toHaveBeenCalledWith(
+      adminReq.auth,
+      'r1',
+      { authorId: 'u1', content: 'x' },
+      'jwt-admin',
+    );
     expect(() =>
       controller.createForAdmin(req, 'r1', {
         authorId: 'u1',

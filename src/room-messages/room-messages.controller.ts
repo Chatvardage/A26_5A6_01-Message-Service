@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { RoomMessage } from '@prisma/client';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { extraireJetonBearer } from '../partage/client-auth';
 import { CreateAdminRoomMessageDto } from './dto/create-admin-room-message.dto';
 import { CreateRoomMessageDto } from './dto/create-room-message.dto';
 import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
@@ -40,7 +41,12 @@ export class RoomMessagesController {
     @Body() dto: CreateAdminRoomMessageDto,
   ): Promise<RoomMessage> {
     this.requireAdmin(req);
-    return this.roomMessages.createForAdmin(req.auth, roomId, dto);
+    return this.roomMessages.createForAdmin(
+      req.auth,
+      roomId,
+      dto,
+      extraireJetonBearer(req.headers.authorization),
+    );
   }
 
   @Get(':roomId/history')

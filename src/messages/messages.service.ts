@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrivateMessage } from '@prisma/client';
@@ -9,13 +10,15 @@ import { LimiteEnvoiService } from '../limite-envoi.service';
 import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
 import { ConversationSummary } from './dto/conversation-summary.dto';
+import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { DestinatairesService } from './destinataires.service';
-import { HistoryQueryDto } from './dto/history-query.dto';
+import { AdminHistoryQueryDto, HistoryQueryDto } from './dto/history-query.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -29,6 +32,7 @@ export class MessagesService {
     senderId: string,
     dto: CreateMessageDto,
     jeton: string,
+    adminId?: string,
   ): Promise<PrivateMessage> {
     // En premier, volontairement : une tentative refusée (à soi-même,
     // destinataire inconnu) compte aussi dans la limite, sinon un script
@@ -46,9 +50,24 @@ export class MessagesService {
       data: { senderId, recipientId: dto.recipientId, content: dto.content },
     });
 
+    if (adminId) {
+      this.logger.log(
+        `Admin ${adminId} a créé le DM ${message.id} au nom de ${senderId}`,
+      );
+    }
+
     // 2) L'événement n'est publié qu'après l'écriture réussie en base.
     await this.redis.publish('private-message.created', message);
     return message;
+  }
+
+  async createForAdmin(
+    dto: CreateAdminMessageDto,
+    jeton: string,
+    adminId: string,
+  ): Promise<PrivateMessage> {
+    await this.destinataires.exigerExistant(dto.senderId, jeton);
+    return this.create(dto.senderId, dto, jeton, adminId);
   }
 
   async history(
@@ -177,10 +196,24 @@ export class MessagesService {
     return message;
   }
 
-  findAllForAdmin(): Promise<PrivateMessage[]> {
+  async findAllForAdmin(
+    query: AdminHistoryQueryDto,
+  ): Promise<PrivateMessage[]> {
+    const where = query.userId
+      ? { OR: [{ senderId: query.userId }, { recipientId: query.userId }] }
+      : {};
+    if (query.cursor) {
+      const cursorMessage = await this.prisma.privateMessage.findFirst({
+        where: { id: query.cursor, ...where },
+        select: { id: true },
+      });
+      if (!cursorMessage) throw new BadRequestException('Curseur invalide');
+    }
     return this.prisma.privateMessage.findMany({
+      where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 100,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      take: query.limit,
     });
   }
 
@@ -228,13 +261,14 @@ export class MessagesService {
     });
   }
 
-  async removeForAdmin(id: string): Promise<void> {
+  async removeForAdmin(id: string, adminId: string): Promise<void> {
     const existing = await this.prisma.privateMessage.findUnique({
       where: { id },
     });
     if (!existing) throw new NotFoundException('Message introuvable');
 
     await this.prisma.privateMessage.delete({ where: { id } });
+    this.logger.log(`Admin ${adminId} a supprimé le DM ${id}`);
     await this.redis.publish('private-message.deleted', {
       id: existing.id,
       senderId: existing.senderId,

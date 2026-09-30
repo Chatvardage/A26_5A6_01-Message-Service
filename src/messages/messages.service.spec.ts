@@ -1,6 +1,7 @@
 import {
   HttpException,
   HttpStatus,
+  Logger,
   BadRequestException,
   ForbiddenException,
   NotFoundException,
@@ -48,6 +49,52 @@ describe('MessagesService', () => {
     expect(redis.publish).toHaveBeenCalledWith('private-message.created', msg);
     expect(limiteEnvoi.verifier).toHaveBeenCalledWith('u1');
     expect(destinataires.exigerExistant).toHaveBeenCalledWith('u2', 'jwt');
+  });
+  it('checks the impersonated sender before creating an admin message', async () => {
+    prisma.privateMessage.create.mockResolvedValue(msg);
+    await expect(
+      service.createForAdmin(
+        { senderId: 'u1', recipientId: 'u2', content: 'hi' },
+        'jwt-admin',
+        'admin',
+      ),
+    ).resolves.toBe(msg);
+    expect(destinataires.exigerExistant.mock.calls).toEqual([
+      ['u1', 'jwt-admin'],
+      ['u2', 'jwt-admin'],
+    ]);
+  });
+  it('rejects an unknown impersonated sender before writing', async () => {
+    destinataires.exigerExistant.mockRejectedValue(
+      new NotFoundException('Destinataire introuvable'),
+    );
+    await expect(
+      service.createForAdmin(
+        { senderId: 'u9', recipientId: 'u2', content: 'hi' },
+        'jwt-admin',
+        'admin',
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.privateMessage.create).not.toHaveBeenCalled();
+  });
+  it('audits an admin message persisted before Redis fails', async () => {
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    prisma.privateMessage.create.mockResolvedValue(msg);
+    redis.publish.mockRejectedValue(new Error('redis down'));
+    try {
+      await expect(
+        service.createForAdmin(
+          { senderId: 'u1', recipientId: 'u2', content: 'hi' },
+          'jwt-admin',
+          'admin',
+        ),
+      ).rejects.toThrow('redis down');
+      expect(log).toHaveBeenCalledWith(
+        'Admin admin a créé le DM m1 au nom de u1',
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
   it('rejects a private message to a recipient that does not exist', async () => {
     destinataires.exigerExistant.mockRejectedValue(
@@ -228,11 +275,16 @@ describe('MessagesService', () => {
     prisma.privateMessage.findUnique.mockResolvedValue(msg);
     prisma.privateMessage.delete.mockResolvedValue(msg);
 
-    await expect(service.findAllForAdmin()).resolves.toEqual([msg]);
-    await expect(service.removeForAdmin('m1')).resolves.toBeUndefined();
+    await expect(service.findAllForAdmin({ limit: 50 })).resolves.toEqual([
+      msg,
+    ]);
+    await expect(
+      service.removeForAdmin('m1', 'admin'),
+    ).resolves.toBeUndefined();
     expect(prisma.privateMessage.findMany).toHaveBeenCalledWith({
+      where: {},
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 100,
+      take: 50,
     });
     expect(redis.publish).toHaveBeenCalledWith('private-message.deleted', {
       id: 'm1',
@@ -240,12 +292,38 @@ describe('MessagesService', () => {
       recipientId: 'u2',
     });
   });
+  it('paginates admin messages filtered by participant', async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue({ id: 'm1' });
+    prisma.privateMessage.findMany.mockResolvedValue([msg]);
+    await expect(
+      service.findAllForAdmin({ cursor: 'm1', limit: 10, userId: 'u1' }),
+    ).resolves.toEqual([msg]);
+    const where = { OR: [{ senderId: 'u1' }, { recipientId: 'u1' }] };
+    expect(prisma.privateMessage.findFirst).toHaveBeenCalledWith({
+      where: { id: 'm1', ...where },
+      select: { id: true },
+    });
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith({
+      where,
+      cursor: { id: 'm1' },
+      skip: 1,
+      take: 10,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+  });
+  it('rejects an admin cursor outside the selected participant', async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue(null);
+    await expect(
+      service.findAllForAdmin({ cursor: 'm1', limit: 10, userId: 'u3' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
+  });
   it('refuses to delete an unknown message for an administrator', async () => {
     prisma.privateMessage.findUnique.mockResolvedValue(null);
 
-    await expect(service.removeForAdmin('inconnu')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.removeForAdmin('inconnu', 'admin'),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.privateMessage.delete).not.toHaveBeenCalled();
   });
   it('update not found', async () => {

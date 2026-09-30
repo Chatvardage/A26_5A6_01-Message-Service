@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JwtAuthService } from '../auth/jwt-auth.service';
 import { LimiteEnvoiService } from '../limite-envoi.service';
+import { DestinatairesService } from '../messages/destinataires.service';
 import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
 import { RoomsClientService } from '../rooms/rooms-client.service';
@@ -16,6 +17,7 @@ import { RoomMessagesService } from './room-messages.service';
     // Instance unique, partagée avec MessagesModule (messages privés) : la
     // limite porte sur tous les envois d'un utilisateur.
     LimiteEnvoiService,
+    DestinatairesService,
     PrismaService,
     RedisService,
     JwtAuthService,
@@ -25,6 +27,7 @@ import { RoomMessagesService } from './room-messages.service';
     RoomMessagesService,
     RoomsClientService,
     LimiteEnvoiService,
+    DestinatairesService,
     // Instance unique : son cache de jetons sert aussi à MessagesModule.
     JwtAuthService,
   ],

@@ -37,6 +37,7 @@ describe('RoomMessagesService', () => {
   let redis: any;
   let rooms: any;
   let limiteEnvoi: any;
+  let destinataires: any;
   let service: RoomMessagesService;
 
   beforeEach(() => {
@@ -54,7 +55,14 @@ describe('RoomMessagesService', () => {
     redis = { publish: jest.fn() };
     rooms = { verifierAcces: jest.fn().mockResolvedValue(lecteurEcrivain) };
     limiteEnvoi = { verifier: jest.fn() };
-    service = new RoomMessagesService(prisma, redis, rooms, limiteEnvoi);
+    destinataires = { exigerExistant: jest.fn().mockResolvedValue(undefined) };
+    service = new RoomMessagesService(
+      prisma,
+      redis,
+      rooms,
+      limiteEnvoi,
+      destinataires,
+    );
   });
 
   it('creates then publishes', async () => {
@@ -77,12 +85,22 @@ describe('RoomMessagesService', () => {
     redis.publish.mockResolvedValue(1);
 
     await expect(
-      service.createForAdmin(acteur('admin'), 'r1', {
-        authorId: 'u1',
-        content: 'hi',
-      }),
+      service.createForAdmin(
+        acteur('admin'),
+        'r1',
+        {
+          authorId: 'u1',
+          content: 'hi',
+        },
+        'jwt-admin',
+      ),
     ).resolves.toBe(msg);
     expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('admin'));
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('u1'));
+    expect(destinataires.exigerExistant).toHaveBeenCalledWith(
+      'u1',
+      'jwt-admin',
+    );
     expect(prisma.roomMessage.create).toHaveBeenCalledWith({
       data: { roomId: 'r1', authorId: 'u1', content: 'hi' },
     });
@@ -94,13 +112,49 @@ describe('RoomMessagesService', () => {
     rooms.verifierAcces.mockResolvedValue(lectureSeule);
 
     await expect(
-      service.createForAdmin(acteur('admin'), 'r1', {
-        authorId: 'u1',
-        content: 'hi',
-      }),
+      service.createForAdmin(
+        acteur('admin'),
+        'r1',
+        {
+          authorId: 'u1',
+          content: 'hi',
+        },
+        'jwt-admin',
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.roomMessage.create).not.toHaveBeenCalled();
   });
+
+  it('rejects an unknown admin-selected author', async () => {
+    destinataires.exigerExistant.mockRejectedValue(new NotFoundException());
+    await expect(
+      service.createForAdmin(
+        acteur('admin'),
+        'r1',
+        { authorId: 'missing', content: 'hi' },
+        'jwt',
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.roomMessage.create).not.toHaveBeenCalled();
+  });
+
+  it.each([sansAcces, lectureSeule])(
+    'rejects an admin-selected author without room write access',
+    async (accesAuteur) => {
+      rooms.verifierAcces
+        .mockResolvedValueOnce(lecteurEcrivain)
+        .mockResolvedValueOnce(accesAuteur);
+      await expect(
+        service.createForAdmin(
+          acteur('admin'),
+          'r1',
+          { authorId: 'u1', content: 'hi' },
+          'jwt',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.roomMessage.create).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects create over the send limit without calling Room-Service', async () => {
     limiteEnvoi.verifier.mockImplementation(() => {

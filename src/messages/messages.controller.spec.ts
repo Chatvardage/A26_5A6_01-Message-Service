@@ -16,6 +16,7 @@ describe('MessagesController', () => {
   beforeEach(() => {
     service = {
       create: jest.fn(),
+      createForAdmin: jest.fn(),
       history: jest.fn(),
       listConversations: jest.fn(),
       findOne: jest.fn(),
@@ -58,7 +59,8 @@ describe('MessagesController', () => {
   });
 
   it('delegates moderation actions for an admin', async () => {
-    service.create.mockResolvedValue(1);
+    const query = { limit: 25 };
+    service.createForAdmin.mockResolvedValue(1);
     service.findAllForAdmin.mockResolvedValue([1]);
     service.removeForAdmin.mockResolvedValue(undefined);
 
@@ -69,21 +71,23 @@ describe('MessagesController', () => {
         content: 'x',
       }),
     ).toBe(1);
-    expect(await controller.findAllForAdmin(adminReq)).toEqual([1]);
+    expect(await controller.findAllForAdmin(adminReq, query)).toEqual([1]);
     expect(await controller.removeForAdmin(adminReq, 'm')).toEqual({
       deleted: true,
     });
-    expect(service.create).toHaveBeenCalledWith(
-      'u1',
+    expect(service.createForAdmin).toHaveBeenCalledWith(
       { senderId: 'u1', recipientId: 'u2', content: 'x' },
       'jwt-admin',
+      'admin',
     );
-    expect(service.findAllForAdmin).toHaveBeenCalledWith();
-    expect(service.removeForAdmin).toHaveBeenCalledWith('m');
+    expect(service.findAllForAdmin).toHaveBeenCalledWith(query);
+    expect(service.removeForAdmin).toHaveBeenCalledWith('m', 'admin');
   });
 
   it('refuses moderation actions for non-admin users', () => {
-    expect(() => controller.findAllForAdmin(req)).toThrow(ForbiddenException);
+    expect(() => controller.findAllForAdmin(req, { limit: 50 })).toThrow(
+      ForbiddenException,
+    );
     expect(() =>
       controller.createForAdmin(req, {
         senderId: 'u1',

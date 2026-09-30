@@ -2,10 +2,12 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { RoomMessage } from '@prisma/client';
 import { LimiteEnvoiService } from '../limite-envoi.service';
+import { DestinatairesService } from '../messages/destinataires.service';
 import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
 import {
@@ -20,11 +22,13 @@ import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
 
 @Injectable()
 export class RoomMessagesService {
+  private readonly logger = new Logger(RoomMessagesService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly rooms: RoomsClientService,
     private readonly limiteEnvoi: LimiteEnvoiService,
+    private readonly destinataires: DestinatairesService,
   ) {}
 
   async create(
@@ -58,6 +62,7 @@ export class RoomMessagesService {
     acteur: Acteur,
     roomId: string,
     dto: CreateAdminRoomMessageDto,
+    jeton: string,
   ): Promise<RoomMessage> {
     this.limiteEnvoi.verifier(dto.authorId);
     const acces = await this.rooms.verifierAcces(roomId, acteur);
@@ -68,10 +73,28 @@ export class RoomMessagesService {
       );
     }
 
+    await this.destinataires.exigerExistant(dto.authorId, jeton);
+    const accesAuteur = await this.rooms.verifierAcces(roomId, {
+      id: dto.authorId,
+      role: 'utilisateur',
+    });
+    if (
+      !accesAuteur.estMembre ||
+      !accesAuteur.peutLire ||
+      !accesAuteur.peutEcrire
+    ) {
+      throw new ForbiddenException(
+        'Auteur sans droit d’écriture dans ce salon',
+      );
+    }
+
     const message = await this.prisma.roomMessage.create({
       data: { roomId, authorId: dto.authorId, content: dto.content },
     });
 
+    this.logger.log(
+      `Admin ${acteur.id} a créé le message ${message.id} dans le salon ${roomId} au nom de ${dto.authorId}`,
+    );
     await this.redis.publish('room-message.created', message);
     return message;
   }
