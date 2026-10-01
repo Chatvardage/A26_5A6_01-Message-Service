@@ -11,11 +11,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PrivateMessage } from '@prisma/client';
+import { AdminGuard } from '../auth/admin.guard';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { extraireJetonBearer } from '../partage/client-auth';
 import { ConversationSummary } from './dto/conversation-summary.dto';
+import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
-import { HistoryQueryDto } from './dto/history-query.dto';
+import { AdminHistoryQueryDto, HistoryQueryDto } from './dto/history-query.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { MessagesService } from './messages.service';
 
@@ -37,6 +39,19 @@ export class MessagesController {
     );
   }
 
+  @Post('admin')
+  @UseGuards(AdminGuard)
+  createForAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: CreateAdminMessageDto,
+  ): Promise<PrivateMessage> {
+    return this.messages.createForAdmin(
+      dto,
+      extraireJetonBearer(req.headers.authorization),
+      req.auth.id,
+    );
+  }
+
   @Get('history/:otherUserId')
   history(
     @Req() req: AuthenticatedRequest,
@@ -46,6 +61,24 @@ export class MessagesController {
     return this.messages.history(req.auth.id, otherUserId, query);
   }
 
+  @Get('admin')
+  @UseGuards(AdminGuard)
+  findAllForAdmin(
+    @Query() query: AdminHistoryQueryDto,
+  ): Promise<PrivateMessage[]> {
+    return this.messages.findAllForAdmin(query);
+  }
+
+  @Delete('admin/:id')
+  @UseGuards(AdminGuard)
+  async removeForAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<{ deleted: true }> {
+    await this.messages.removeForAdmin(id, req.auth.id);
+    return { deleted: true };
+  }
+
   @Get('conversations')
   listConversations(
     @Req() req: AuthenticatedRequest,
@@ -53,6 +86,8 @@ export class MessagesController {
     return this.messages.listConversations(req.auth.id);
   }
 
+  // En dernier : Express essaie les routes dans l'ordre de déclaration,
+  // ':id' capturerait sinon `admin` et `conversations`.
   @Get(':id')
   findOne(
     @Req() req: AuthenticatedRequest,

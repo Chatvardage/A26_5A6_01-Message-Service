@@ -1,21 +1,30 @@
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { AdminGuard } from '../auth/admin.guard';
 import { MessagesController } from './messages.controller';
 
 describe('MessagesController', () => {
   let service: any;
   let controller: MessagesController;
   const req: any = {
-    auth: { id: 'u1' },
+    auth: { id: 'u1', role: 'utilisateur' },
     headers: { authorization: 'Bearer jwt-u1' },
+  };
+  const adminReq: any = {
+    auth: { id: 'admin', role: 'admin' },
+    headers: { authorization: 'Bearer jwt-admin' },
   };
 
   beforeEach(() => {
     service = {
       create: jest.fn(),
+      createForAdmin: jest.fn(),
       history: jest.fn(),
       listConversations: jest.fn(),
       findOne: jest.fn(),
+      findAllForAdmin: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
+      removeForAdmin: jest.fn(),
     };
     controller = new MessagesController(service);
   });
@@ -49,4 +58,43 @@ describe('MessagesController', () => {
     expect(service.update).toHaveBeenCalledWith('u1', 'm', { content: 'y' });
     expect(service.remove).toHaveBeenCalledWith('u1', 'm');
   });
+
+  it('delegates moderation actions for an admin', async () => {
+    const query = { limit: 25 };
+    service.createForAdmin.mockResolvedValue(1);
+    service.findAllForAdmin.mockResolvedValue([1]);
+    service.removeForAdmin.mockResolvedValue(undefined);
+
+    expect(
+      await controller.createForAdmin(adminReq, {
+        senderId: 'u1',
+        recipientId: 'u2',
+        content: 'x',
+      }),
+    ).toBe(1);
+    expect(await controller.findAllForAdmin(query)).toEqual([1]);
+    expect(await controller.removeForAdmin(adminReq, 'm')).toEqual({
+      deleted: true,
+    });
+    expect(service.createForAdmin).toHaveBeenCalledWith(
+      { senderId: 'u1', recipientId: 'u2', content: 'x' },
+      'jwt-admin',
+      'admin',
+    );
+    expect(service.findAllForAdmin).toHaveBeenCalledWith(query);
+    expect(service.removeForAdmin).toHaveBeenCalledWith('m', 'admin');
+  });
+
+  it.each(['createForAdmin', 'findAllForAdmin', 'removeForAdmin'] as const)(
+    'reserves %s to admins (AdminGuard)',
+    (route) => {
+      expect(
+        Reflect.getMetadata(
+          GUARDS_METADATA,
+          Object.getOwnPropertyDescriptor(MessagesController.prototype, route)
+            ?.value,
+        ),
+      ).toEqual([AdminGuard]);
+    },
+  );
 });

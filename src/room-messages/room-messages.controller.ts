@@ -11,7 +11,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { RoomMessage } from '@prisma/client';
+import { AdminGuard } from '../auth/admin.guard';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { extraireJetonBearer } from '../partage/client-auth';
+import { CreateAdminRoomMessageDto } from './dto/create-admin-room-message.dto';
 import { CreateRoomMessageDto } from './dto/create-room-message.dto';
 import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
 import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
@@ -31,6 +34,23 @@ export class RoomMessagesController {
     return this.roomMessages.create(req.auth, roomId, dto);
   }
 
+  @Post(':roomId/admin')
+  @UseGuards(AdminGuard)
+  createForAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Param('roomId') roomId: string,
+    @Body() dto: CreateAdminRoomMessageDto,
+  ): Promise<RoomMessage> {
+    return this.roomMessages.createForAdmin(
+      req.auth,
+      roomId,
+      dto,
+      extraireJetonBearer(req.headers.authorization),
+    );
+  }
+
+  // Avant ':roomId/:id' : Express essaie les routes dans l'ordre de
+  // déclaration, `history` serait sinon pris pour un id de message.
   @Get(':roomId/history')
   history(
     @Req() req: AuthenticatedRequest,

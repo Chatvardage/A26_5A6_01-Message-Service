@@ -127,4 +127,45 @@ describe('DestinatairesService', () => {
       new DestinatairesService().exigerExistant('u2', 'jwt'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  describe('roleDe', () => {
+    it("lit le rôle global sur /api/users/:id, avec le jeton de l'admin", async () => {
+      repondre({ id: 'u2', pseudo: 'bob', role: 'admin' });
+      await expect(
+        new DestinatairesService().roleDe('u2', 'jwt-admin'),
+      ).resolves.toBe('admin');
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(String(url)).toBe('http://auth:3001/api/users/u2');
+      expect(options.headers.Authorization).toBe('Bearer jwt-admin');
+    });
+
+    it('ne mémorise pas le rôle (il peut changer)', async () => {
+      repondre({ id: 'u2', role: 'utilisateur' });
+      const service = new DestinatairesService();
+      await service.roleDe('u2', 'jwt');
+      await service.roleDe('u2', 'jwt');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      [404, NotFoundException],
+      [403, UnauthorizedException],
+      [500, ServiceUnavailableException],
+    ])('réponse %i : %p', async (status, erreur) => {
+      repondre({ erreur: 'x' }, status);
+      await expect(
+        new DestinatairesService().roleDe('u2', 'jwt'),
+      ).rejects.toBeInstanceOf(erreur);
+    });
+
+    it.each([
+      ['un rôle inconnu', { id: 'u2', role: 'super' }],
+      ['null', null],
+    ])('réponse invalide (%s) : 502', async (_cas, corps) => {
+      repondre(corps);
+      await expect(
+        new DestinatairesService().roleDe('u2', 'jwt'),
+      ).rejects.toBeInstanceOf(BadGatewayException);
+    });
+  });
 });

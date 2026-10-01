@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ArrayMaxSize, IsArray, IsString, MaxLength } from 'class-validator';
-import { DestinatairesService } from '../messages/destinataires.service';
+import { DestinatairesService } from '../destinataires.service';
 import { MessagesService } from '../messages/messages.service';
 import { RoomMessagesService } from '../room-messages/room-messages.service';
 import { InternalTokenGuard } from './internal-token.guard';

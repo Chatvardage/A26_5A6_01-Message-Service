@@ -10,8 +10,8 @@ export type AuthenticatedUser = UtilisateurAuthentifie;
 /**
  * Valide le JWT (REST et connexion Socket.IO) auprès d'Authentification.
  * Configuration, cache et traduction des erreurs : src/partage/client-auth.ts,
- * partagé avec Room-Service. Une seule instance (exportée par
- * RoomMessagesModule) pour que le cache soit commun à tout le service.
+ * partagé avec Room-Service. Une seule instance (ServicesCommunsModule)
+ * pour que le cache soit commun à tout le service.
  */
 @Injectable()
 export class JwtAuthService {

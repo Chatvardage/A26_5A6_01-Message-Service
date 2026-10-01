@@ -37,6 +37,7 @@ describe('RoomMessagesService', () => {
   let redis: any;
   let rooms: any;
   let limiteEnvoi: any;
+  let destinataires: any;
   let service: RoomMessagesService;
 
   beforeEach(() => {
@@ -54,7 +55,14 @@ describe('RoomMessagesService', () => {
     redis = { publish: jest.fn() };
     rooms = { verifierAcces: jest.fn().mockResolvedValue(lecteurEcrivain) };
     limiteEnvoi = { verifier: jest.fn() };
-    service = new RoomMessagesService(prisma, redis, rooms, limiteEnvoi);
+    destinataires = { roleDe: jest.fn().mockResolvedValue('utilisateur') };
+    service = new RoomMessagesService(
+      prisma,
+      redis,
+      rooms,
+      limiteEnvoi,
+      destinataires,
+    );
   });
 
   it('creates then publishes', async () => {
@@ -71,6 +79,97 @@ describe('RoomMessagesService', () => {
     expect(redis.publish).toHaveBeenCalledWith('room-message.created', msg);
     expect(limiteEnvoi.verifier).toHaveBeenCalledWith('u1');
   });
+
+  it('creates an admin message with the selected author then publishes', async () => {
+    prisma.roomMessage.create.mockResolvedValue(msg);
+    redis.publish.mockResolvedValue(1);
+
+    await expect(
+      service.createForAdmin(
+        acteur('admin'),
+        'r1',
+        {
+          authorId: 'u1',
+          content: 'hi',
+        },
+        'jwt-admin',
+      ),
+    ).resolves.toBe(msg);
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('admin'));
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('u1'));
+    expect(destinataires.roleDe).toHaveBeenCalledWith('u1', 'jwt-admin');
+    expect(prisma.roomMessage.create).toHaveBeenCalledWith({
+      data: { roomId: 'r1', authorId: 'u1', content: 'hi' },
+    });
+    expect(redis.publish).toHaveBeenCalledWith('room-message.created', msg);
+    expect(limiteEnvoi.verifier).toHaveBeenCalledWith('u1');
+  });
+
+  it('rejects an admin message in a read-only room', async () => {
+    rooms.verifierAcces.mockResolvedValue(lectureSeule);
+
+    await expect(
+      service.createForAdmin(
+        acteur('admin'),
+        'r1',
+        {
+          authorId: 'u1',
+          content: 'hi',
+        },
+        'jwt-admin',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(limiteEnvoi.verifier).not.toHaveBeenCalled();
+    expect(prisma.roomMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("evaluates the author's room access with their real global role", async () => {
+    destinataires.roleDe.mockResolvedValue('admin');
+    prisma.roomMessage.create.mockResolvedValue(msg);
+    await service.createForAdmin(
+      acteur('admin'),
+      'r1',
+      { authorId: 'u1', content: 'hi' },
+      'jwt-admin',
+    );
+    expect(rooms.verifierAcces).toHaveBeenLastCalledWith('r1', {
+      id: 'u1',
+      role: 'admin',
+    });
+  });
+
+  it('rejects an unknown admin-selected author without using its send limit', async () => {
+    destinataires.roleDe.mockRejectedValue(new NotFoundException());
+    await expect(
+      service.createForAdmin(
+        acteur('admin'),
+        'r1',
+        { authorId: 'missing', content: 'hi' },
+        'jwt',
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(limiteEnvoi.verifier).not.toHaveBeenCalled();
+    expect(prisma.roomMessage.create).not.toHaveBeenCalled();
+  });
+
+  it.each([sansAcces, lectureSeule])(
+    'rejects an admin-selected author without room write access',
+    async (accesAuteur) => {
+      rooms.verifierAcces
+        .mockResolvedValueOnce(lecteurEcrivain)
+        .mockResolvedValueOnce(accesAuteur);
+      await expect(
+        service.createForAdmin(
+          acteur('admin'),
+          'r1',
+          { authorId: 'u1', content: 'hi' },
+          'jwt',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(limiteEnvoi.verifier).not.toHaveBeenCalled();
+      expect(prisma.roomMessage.create).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects create over the send limit without calling Room-Service', async () => {
     limiteEnvoi.verifier.mockImplementation(() => {
