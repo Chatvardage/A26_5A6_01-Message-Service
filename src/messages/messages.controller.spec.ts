@@ -72,7 +72,7 @@ describe('MessagesController', () => {
         content: 'x',
       }),
     ).toBe(1);
-    expect(await controller.findAllForAdmin(adminReq, query)).toEqual([1]);
+    expect(await controller.findAllForAdmin(query)).toEqual([1]);
     expect(await controller.removeForAdmin(adminReq, 'm')).toEqual({
       deleted: true,
     });

@@ -49,6 +49,8 @@ export class RoomMessagesController {
     );
   }
 
+  // Avant ':roomId/:id' : Express essaie les routes dans l'ordre de
+  // déclaration, `history` serait sinon pris pour un id de message.
   @Get(':roomId/history')
   history(
     @Req() req: AuthenticatedRequest,

@@ -119,6 +119,7 @@ describe('RoomMessagesService', () => {
         'jwt-admin',
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(limiteEnvoi.verifier).not.toHaveBeenCalled();
     expect(prisma.roomMessage.create).not.toHaveBeenCalled();
   });
 
@@ -165,6 +166,7 @@ describe('RoomMessagesService', () => {
           'jwt',
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(limiteEnvoi.verifier).not.toHaveBeenCalled();
       expect(prisma.roomMessage.create).not.toHaveBeenCalled();
     },
   );

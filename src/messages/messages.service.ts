@@ -36,7 +36,10 @@ export class MessagesService {
     return this.creer(senderId, dto, jeton);
   }
 
-  /** Message envoyé par un admin au nom de `dto.senderId`. */
+  /** Message envoyé par un admin au nom de `dto.senderId`. L'expéditeur est
+   * vérifié AVANT sa limite d'envoi, contrairement au destinataire dans
+   * creer() : la limite est la sienne, pas celle de l'admin, et la route
+   * réservée aux admins ne sert pas à sonder Authentification. */
   async createForAdmin(
     dto: CreateAdminMessageDto,
     jeton: string,

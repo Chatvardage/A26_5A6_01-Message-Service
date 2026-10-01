@@ -64,7 +64,6 @@ export class MessagesController {
   @Get('admin')
   @UseGuards(AdminGuard)
   findAllForAdmin(
-    @Req() req: AuthenticatedRequest,
     @Query() query: AdminHistoryQueryDto,
   ): Promise<PrivateMessage[]> {
     return this.messages.findAllForAdmin(query);
@@ -87,6 +86,8 @@ export class MessagesController {
     return this.messages.listConversations(req.auth.id);
   }
 
+  // En dernier : Express essaie les routes dans l'ordre de déclaration,
+  // ':id' capturerait sinon `admin` et `conversations`.
   @Get(':id')
   findOne(
     @Req() req: AuthenticatedRequest,

@@ -126,7 +126,7 @@ Création :
 ### Messages de salon (channels)
 
 - `POST /api/messages/rooms/:roomId` — créer un message de salon (JWT requis, membre du salon requis)
-- `POST /api/messages/rooms/:roomId/admin` — créer un message au nom d'un utilisateur (admin requis ; corps `{ "authorId": "uuid", "content": "..." }`). L'admin doit pouvoir écrire dans le salon ; l'auteur doit exister, en être membre et pouvoir y écrire, droits évalués avec son rôle global réel (lu par `GET /api/users/:id` d'Authentification avec le jeton de l'admin). La limite d'envoi est celle de l'auteur, décomptée seulement une fois son existence vérifiée. La création est journalisée avec l'ID admin, l'ID du message, le salon et l'auteur, sans contenu.
+- `POST /api/messages/rooms/:roomId/admin` — créer un message au nom d'un utilisateur (admin requis ; corps `{ "authorId": "uuid", "content": "..." }`). L'admin doit pouvoir écrire dans le salon ; l'auteur doit exister, en être membre et pouvoir y écrire, droits évalués avec son rôle global réel (lu par `GET /api/users/:id` d'Authentification avec le jeton de l'admin). La limite d'envoi est celle de l'auteur, décomptée seulement une fois la requête validée (auteur existant, accès de l'admin et de l'auteur). La création est journalisée avec l'ID admin, l'ID du message, le salon et l'auteur, sans contenu.
 - `GET /api/messages/rooms/:roomId/history?limit=50&cursor=<messageId>` — historique paginé (JWT requis, membre du salon requis, limite 1..100)
 - `GET /api/messages/rooms/:roomId/:id` — récupérer un message du salon (n'importe quel membre du salon, pas seulement l'auteur)
 - `PATCH /api/messages/rooms/:roomId/:id` — modifier son propre message de salon

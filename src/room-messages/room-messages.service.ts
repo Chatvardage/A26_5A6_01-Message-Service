@@ -66,13 +66,9 @@ export class RoomMessagesService {
     dto: CreateAdminRoomMessageDto,
     jeton: string,
   ): Promise<RoomMessage> {
-    // L'auteur en premier, contrairement à create() : la limite est la
-    // sienne, inutile de la décompter pour un compte inexistant. Pas de
-    // sondage d'Authentification à craindre, la route est réservée aux
-    // admins. Son rôle global réel compte pour Room-Service (un admin global
-    // a tous les droits, y compris dans un salon en écriture réservée).
+    // Son rôle global réel compte pour Room-Service (un admin global a tous
+    // les droits, y compris dans un salon en écriture réservée).
     const roleAuteur = await this.destinataires.roleDe(dto.authorId, jeton);
-    this.limiteEnvoi.verifier(dto.authorId);
     const acces = await this.rooms.verifierAcces(roomId, acteur);
     this.exigerLecture(acces.peutLire, 'y envoyer un message');
     if (!acces.peutEcrire) {
@@ -94,6 +90,11 @@ export class RoomMessagesService {
         'Auteur sans droit d’écriture dans ce salon',
       );
     }
+    // Contrairement à create(), la limite (celle de l'auteur, pas de l'admin)
+    // n'est décomptée qu'une fois la requête jugée valide : une erreur de
+    // l'admin ne doit pas bloquer l'auteur. Pas de sondage
+    // d'Authentification à craindre, la route est réservée aux admins.
+    this.limiteEnvoi.verifier(dto.authorId);
 
     const message = await this.prisma.roomMessage.create({
       data: { roomId, authorId: dto.authorId, content: dto.content },
