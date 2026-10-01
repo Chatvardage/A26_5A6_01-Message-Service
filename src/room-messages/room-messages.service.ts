@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { RoomMessage } from '@prisma/client';
 import { LimiteEnvoiService } from '../limite-envoi.service';
-import { DestinatairesService } from '../messages/destinataires.service';
+import { DestinatairesService } from '../destinataires.service';
 import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
 import {
@@ -58,12 +58,20 @@ export class RoomMessagesService {
     return message;
   }
 
+  /** Message créé par un admin (`acteur`) au nom de `dto.authorId`, qui
+   * doit pouvoir écrire lui-même dans ce salon. */
   async createForAdmin(
     acteur: Acteur,
     roomId: string,
     dto: CreateAdminRoomMessageDto,
     jeton: string,
   ): Promise<RoomMessage> {
+    // L'auteur en premier, contrairement à create() : la limite est la
+    // sienne, inutile de la décompter pour un compte inexistant. Pas de
+    // sondage d'Authentification à craindre, la route est réservée aux
+    // admins. Son rôle global réel compte pour Room-Service (un admin global
+    // a tous les droits, y compris dans un salon en écriture réservée).
+    const roleAuteur = await this.destinataires.roleDe(dto.authorId, jeton);
     this.limiteEnvoi.verifier(dto.authorId);
     const acces = await this.rooms.verifierAcces(roomId, acteur);
     this.exigerLecture(acces.peutLire, 'y envoyer un message');
@@ -73,10 +81,9 @@ export class RoomMessagesService {
       );
     }
 
-    await this.destinataires.exigerExistant(dto.authorId, jeton);
     const accesAuteur = await this.rooms.verifierAcces(roomId, {
       id: dto.authorId,
-      role: 'utilisateur',
+      role: roleAuteur,
     });
     if (
       !accesAuteur.estMembre ||

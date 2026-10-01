@@ -55,7 +55,7 @@ describe('RoomMessagesService', () => {
     redis = { publish: jest.fn() };
     rooms = { verifierAcces: jest.fn().mockResolvedValue(lecteurEcrivain) };
     limiteEnvoi = { verifier: jest.fn() };
-    destinataires = { exigerExistant: jest.fn().mockResolvedValue(undefined) };
+    destinataires = { roleDe: jest.fn().mockResolvedValue('utilisateur') };
     service = new RoomMessagesService(
       prisma,
       redis,
@@ -97,10 +97,7 @@ describe('RoomMessagesService', () => {
     ).resolves.toBe(msg);
     expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('admin'));
     expect(rooms.verifierAcces).toHaveBeenCalledWith('r1', acteur('u1'));
-    expect(destinataires.exigerExistant).toHaveBeenCalledWith(
-      'u1',
-      'jwt-admin',
-    );
+    expect(destinataires.roleDe).toHaveBeenCalledWith('u1', 'jwt-admin');
     expect(prisma.roomMessage.create).toHaveBeenCalledWith({
       data: { roomId: 'r1', authorId: 'u1', content: 'hi' },
     });
@@ -125,8 +122,23 @@ describe('RoomMessagesService', () => {
     expect(prisma.roomMessage.create).not.toHaveBeenCalled();
   });
 
-  it('rejects an unknown admin-selected author', async () => {
-    destinataires.exigerExistant.mockRejectedValue(new NotFoundException());
+  it("evaluates the author's room access with their real global role", async () => {
+    destinataires.roleDe.mockResolvedValue('admin');
+    prisma.roomMessage.create.mockResolvedValue(msg);
+    await service.createForAdmin(
+      acteur('admin'),
+      'r1',
+      { authorId: 'u1', content: 'hi' },
+      'jwt-admin',
+    );
+    expect(rooms.verifierAcces).toHaveBeenLastCalledWith('r1', {
+      id: 'u1',
+      role: 'admin',
+    });
+  });
+
+  it('rejects an unknown admin-selected author without using its send limit', async () => {
+    destinataires.roleDe.mockRejectedValue(new NotFoundException());
     await expect(
       service.createForAdmin(
         acteur('admin'),
@@ -135,6 +147,7 @@ describe('RoomMessagesService', () => {
         'jwt',
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
+    expect(limiteEnvoi.verifier).not.toHaveBeenCalled();
     expect(prisma.roomMessage.create).not.toHaveBeenCalled();
   });
 

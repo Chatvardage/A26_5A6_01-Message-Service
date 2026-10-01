@@ -1,4 +1,5 @@
-import { ForbiddenException } from '@nestjs/common';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { AdminGuard } from '../auth/admin.guard';
 import { MessagesController } from './messages.controller';
 
 describe('MessagesController', () => {
@@ -84,16 +85,16 @@ describe('MessagesController', () => {
     expect(service.removeForAdmin).toHaveBeenCalledWith('m', 'admin');
   });
 
-  it('refuses moderation actions for non-admin users', () => {
-    expect(() => controller.findAllForAdmin(req, { limit: 50 })).toThrow(
-      ForbiddenException,
-    );
-    expect(() =>
-      controller.createForAdmin(req, {
-        senderId: 'u1',
-        recipientId: 'u2',
-        content: 'x',
-      }),
-    ).toThrow(ForbiddenException);
-  });
+  it.each(['createForAdmin', 'findAllForAdmin', 'removeForAdmin'] as const)(
+    'reserves %s to admins (AdminGuard)',
+    (route) => {
+      expect(
+        Reflect.getMetadata(
+          GUARDS_METADATA,
+          Object.getOwnPropertyDescriptor(MessagesController.prototype, route)
+            ?.value,
+        ),
+      ).toEqual([AdminGuard]);
+    },
+  );
 });

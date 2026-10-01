@@ -1,4 +1,5 @@
-import { ForbiddenException } from '@nestjs/common';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { AdminGuard } from '../auth/admin.guard';
 import { RoomMessagesController } from './room-messages.controller';
 
 describe('RoomMessagesController', () => {
@@ -37,12 +38,18 @@ describe('RoomMessagesController', () => {
       { authorId: 'u1', content: 'x' },
       'jwt-admin',
     );
-    expect(() =>
-      controller.createForAdmin(req, 'r1', {
-        authorId: 'u1',
-        content: 'x',
-      }),
-    ).toThrow(ForbiddenException);
+  });
+
+  it('reserves createForAdmin to admins (AdminGuard)', () => {
+    expect(
+      Reflect.getMetadata(
+        GUARDS_METADATA,
+        Object.getOwnPropertyDescriptor(
+          RoomMessagesController.prototype,
+          'createForAdmin',
+        )?.value,
+      ),
+    ).toEqual([AdminGuard]);
   });
 
   it('delegates authenticated CRUD operations', async () => {

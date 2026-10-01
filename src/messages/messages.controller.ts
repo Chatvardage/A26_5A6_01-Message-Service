@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -12,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PrivateMessage } from '@prisma/client';
+import { AdminGuard } from '../auth/admin.guard';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { extraireJetonBearer } from '../partage/client-auth';
 import { ConversationSummary } from './dto/conversation-summary.dto';
@@ -40,11 +40,11 @@ export class MessagesController {
   }
 
   @Post('admin')
+  @UseGuards(AdminGuard)
   createForAdmin(
     @Req() req: AuthenticatedRequest,
     @Body() dto: CreateAdminMessageDto,
   ): Promise<PrivateMessage> {
-    this.requireAdmin(req);
     return this.messages.createForAdmin(
       dto,
       extraireJetonBearer(req.headers.authorization),
@@ -62,20 +62,20 @@ export class MessagesController {
   }
 
   @Get('admin')
+  @UseGuards(AdminGuard)
   findAllForAdmin(
     @Req() req: AuthenticatedRequest,
     @Query() query: AdminHistoryQueryDto,
   ): Promise<PrivateMessage[]> {
-    this.requireAdmin(req);
     return this.messages.findAllForAdmin(query);
   }
 
   @Delete('admin/:id')
+  @UseGuards(AdminGuard)
   async removeForAdmin(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
-    this.requireAdmin(req);
     await this.messages.removeForAdmin(id, req.auth.id);
     return { deleted: true };
   }
@@ -111,11 +111,5 @@ export class MessagesController {
   ): Promise<{ deleted: true }> {
     await this.messages.remove(req.auth.id, id);
     return { deleted: true };
-  }
-
-  private requireAdmin(req: AuthenticatedRequest): void {
-    if (req.auth.role !== 'admin') {
-      throw new ForbiddenException('Role admin requis');
-    }
   }
 }

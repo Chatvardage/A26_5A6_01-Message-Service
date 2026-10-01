@@ -12,7 +12,7 @@ import { RedisService } from '../redis.service';
 import { ConversationSummary } from './dto/conversation-summary.dto';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
-import { DestinatairesService } from './destinataires.service';
+import { DestinatairesService } from '../destinataires.service';
 import { AdminHistoryQueryDto, HistoryQueryDto } from './dto/history-query.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 
@@ -28,11 +28,35 @@ export class MessagesService {
 
   /** `jeton` : celui de l'expéditeur, pour vérifier que le destinataire
    * existe (voir DestinatairesService). */
-  async create(
+  create(
     senderId: string,
     dto: CreateMessageDto,
     jeton: string,
-    adminId?: string,
+  ): Promise<PrivateMessage> {
+    return this.creer(senderId, dto, jeton);
+  }
+
+  /** Message envoyé par un admin au nom de `dto.senderId`. */
+  async createForAdmin(
+    dto: CreateAdminMessageDto,
+    jeton: string,
+    adminId: string,
+  ): Promise<PrivateMessage> {
+    await this.destinataires.exigerExistant(dto.senderId, jeton);
+    return this.creer(dto.senderId, dto, jeton, (message) =>
+      this.logger.log(
+        `Admin ${adminId} a créé le DM ${message.id} au nom de ${dto.senderId}`,
+      ),
+    );
+  }
+
+  /** `auditer` : appelé dès l'écriture en base, avant la publication Redis,
+   * pour que la trace existe même si celle-ci échoue. */
+  private async creer(
+    senderId: string,
+    dto: CreateMessageDto,
+    jeton: string,
+    auditer?: (message: PrivateMessage) => void,
   ): Promise<PrivateMessage> {
     // En premier, volontairement : une tentative refusée (à soi-même,
     // destinataire inconnu) compte aussi dans la limite, sinon un script
@@ -49,25 +73,11 @@ export class MessagesService {
     const message = await this.prisma.privateMessage.create({
       data: { senderId, recipientId: dto.recipientId, content: dto.content },
     });
-
-    if (adminId) {
-      this.logger.log(
-        `Admin ${adminId} a créé le DM ${message.id} au nom de ${senderId}`,
-      );
-    }
+    auditer?.(message);
 
     // 2) L'événement n'est publié qu'après l'écriture réussie en base.
     await this.redis.publish('private-message.created', message);
     return message;
-  }
-
-  async createForAdmin(
-    dto: CreateAdminMessageDto,
-    jeton: string,
-    adminId: string,
-  ): Promise<PrivateMessage> {
-    await this.destinataires.exigerExistant(dto.senderId, jeton);
-    return this.create(dto.senderId, dto, jeton, adminId);
   }
 
   async history(
