@@ -10,6 +10,12 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiForbiddenResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { RoomMessage } from '@prisma/client';
 import { AdminGuard } from '../auth/admin.guard';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,12 +26,18 @@ import { RoomHistoryQueryDto } from './dto/room-history-query.dto';
 import { UpdateRoomMessageDto } from './dto/update-room-message.dto';
 import { RoomMessagesService } from './room-messages.service';
 
+@ApiTags('Messages de salon')
+@ApiBearerAuth()
 @Controller('messages/rooms')
 @UseGuards(JwtAuthGuard)
 export class RoomMessagesController {
   constructor(private readonly roomMessages: RoomMessagesService) {}
 
   @Post(':roomId')
+  @ApiOperation({
+    summary: 'Envoie un message dans un salon',
+    description: "Droit d'écriture vérifié auprès de Room-Service.",
+  })
   create(
     @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
@@ -36,6 +48,11 @@ export class RoomMessagesController {
 
   @Post(':roomId/admin')
   @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: "Crée un message de salon au nom d'un membre",
+    description: 'Admin requis.',
+  })
+  @ApiForbiddenResponse({ description: 'Rôle admin requis' })
   createForAdmin(
     @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
@@ -52,6 +69,10 @@ export class RoomMessagesController {
   // Avant ':roomId/:id' : Express essaie les routes dans l'ordre de
   // déclaration, `history` serait sinon pris pour un id de message.
   @Get(':roomId/history')
+  @ApiOperation({
+    summary: "Historique d'un salon",
+    description: 'Membres du salon ; paginé par `cursor`.',
+  })
   history(
     @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
@@ -61,6 +82,7 @@ export class RoomMessagesController {
   }
 
   @Get(':roomId/:id')
+  @ApiOperation({ summary: 'Lit un message de salon' })
   findOne(
     @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
@@ -70,6 +92,10 @@ export class RoomMessagesController {
   }
 
   @Patch(':roomId/:id')
+  @ApiOperation({
+    summary: 'Modifie un message de salon',
+    description: 'Auteur seulement.',
+  })
   update(
     @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
@@ -80,6 +106,10 @@ export class RoomMessagesController {
   }
 
   @Delete(':roomId/:id')
+  @ApiOperation({
+    summary: 'Supprime un message de salon',
+    description: 'Auteur, modérateur du serveur, propriétaire ou admin.',
+  })
   async remove(
     @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,

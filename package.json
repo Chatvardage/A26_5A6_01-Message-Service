@@ -21,6 +21,7 @@
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
     "@nestjs/platform-socket.io": "^11.1.6",
+    "@nestjs/swagger": "^11.4.7",
     "@nestjs/websockets": "^11.1.6",
     "@prisma/client": "6.19.3",
     "class-transformer": "^0.5.1",
@@ -80,7 +81,10 @@
   "overrides": {
     "multer": "^2.3.0",
     "deepmerge-ts": "^8.0.0",
-    "effect": "^3.20.0"
+    "effect": "^3.20.0",
+    "@nestjs/swagger": {
+      "js-yaml": "^5.4.2"
+    }
   },
   "engines": {
     "node": ">=22"

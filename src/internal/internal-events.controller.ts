@@ -1,7 +1,11 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RedisService } from '../redis.service';
 import { EvenementServeurDto } from './evenement-serveur.dto';
-import { InternalTokenGuard } from './internal-token.guard';
+import {
+  EN_TETE_JETON_INTERNE,
+  InternalTokenGuard,
+} from './internal-token.guard';
 
 export const SERVEUR_CHANNEL = 'serveur.change';
 
@@ -11,12 +15,17 @@ export const SERVEUR_CHANNEL = 'serveur.change';
  * Socket.IO de chaque instance relaie aux destinataires (voir
  * MessagesGateway, `serveur.change`).
  */
+@ApiTags('Interne')
+@ApiHeader({ name: EN_TETE_JETON_INTERNE, required: true })
 @Controller('internal')
 @UseGuards(InternalTokenGuard)
 export class InternalEventsController {
   constructor(private readonly redis: RedisService) {}
 
   @Post('events')
+  @ApiOperation({
+    summary: 'Diffuse un changement de serveur (appelée par Room-Service)',
+  })
   @HttpCode(202)
   async recevoir(@Body() dto: EvenementServeurDto): Promise<{ accepte: true }> {
     await this.redis.publish(SERVEUR_CHANNEL, {

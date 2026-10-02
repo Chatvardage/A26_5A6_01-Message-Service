@@ -23,6 +23,7 @@ Architecture d'équipe :
 - Prisma 6 (version exacte, la même dans tous les services), PostgreSQL 17
 - Redis 7 (Pub/Sub) et Socket.IO (namespace `/messages`)
 - Jest, ESLint + Prettier (même configuration que les autres services Node)
+- Swagger / OpenAPI (`@nestjs/swagger` 11, exposé sous `/docs`)
 - Docker
 
 ## Responsabilités
@@ -44,6 +45,12 @@ Ne pas recoder ici une règle de droits sur les salons : toujours demander l'acc
 ## Fichiers partagés (`src/partage/`)
 
 `client-auth.ts` et `secrets-production.ts` (et leurs specs) sont **identiques à l'octet près** dans d'autres dépôts. Ne pas les modifier dans un seul dépôt : reporter le même changement partout, puis lancer `A26_5A6_01-Infra/scripts/verifier-fichiers-partages.sh`.
+
+## Swagger
+
+Toutes les routes REST sont sous `/api`; Swagger est exposé sous `/docs`. Une nouvelle route ou un nouveau DTO REST reçoit ses décorateurs `@ApiOperation` / `@ApiProperty`, comme dans Room-Service. Les événements Socket.IO ne sont pas dans Swagger : les documenter dans Infra (`docs/api/temps-reel-*.md`).
+
+`@nestjs/swagger` 11 embarque `js-yaml` 5.3.0 (vulnérabilité modérée). L'`overrides` limité à `@nestjs/swagger` force `js-yaml` ^5.4.2 sans toucher aux autres paquets (la v12 exige NestJS 12). Le retirer quand Swagger 11 corrigera sa dépendance ou lors du passage à NestJS 12.
 
 ## Limites connues (acceptées)
 
