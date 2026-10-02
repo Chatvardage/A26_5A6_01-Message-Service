@@ -1,0 +1,63 @@
+# Lancer Message-Service seul, avec son PostgreSQL et son Redis
+# (docker compose -f compose.local.yml up --build). Authentification et
+# Room-Service sont attendus sur l'hôte (ports 3001 et 3003) ; la stack
+# complète est dans A26_5A6_01-Infra.
+services:
+  message-service:
+    build: .
+    environment:
+      PORT: 3004
+      NODE_ENV: development
+      DATABASE_URL: postgresql://message_service:message_service_dev@postgres:5432/chatvardage_messages?schema=public
+      REDIS_URL: redis://:chatvardage_redis_dev@redis:6379
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://host.docker.internal:3001}
+      AUTH_SERVICE_TIMEOUT_MS: ${AUTH_SERVICE_TIMEOUT_MS:-3000}
+      AUTH_CACHE_TTL_MS: ${AUTH_CACHE_TTL_MS:-10000}
+      ROOM_SERVICE_URL: ${ROOM_SERVICE_URL:-http://host.docker.internal:3003}
+      ROOM_SERVICE_TIMEOUT_MS: ${ROOM_SERVICE_TIMEOUT_MS:-3000}
+      ROOM_ACCESS_CACHE_TTL_MS: ${ROOM_ACCESS_CACHE_TTL_MS:-10000}
+      # Même valeur que dans Room-Service (route /api/internal/*).
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-jeton-interne-local}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "3004:3004"
+    # Linux Docker Engine 20.10+ requis pour la valeur spéciale host-gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: message_service
+      POSTGRES_PASSWORD: message_service_dev
+      POSTGRES_DB: chatvardage_messages
+    ports:
+      - "5432:5432"
+    volumes:
+      - messages-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U message_service -d chatvardage_messages"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--requirepass", "chatvardage_redis_dev"]
+    environment:
+      REDISCLI_AUTH: chatvardage_redis_dev
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  messages-postgres-data:
