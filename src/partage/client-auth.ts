@@ -10,7 +10,9 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 
-export const ROLES_GLOBAUX = ['admin', 'moderateur', 'utilisateur'] as const;
+// Rôles globaux d'Authentification. Le modérateur n'existe que dans un
+// serveur (Room-Service), jamais comme rôle global.
+export const ROLES_GLOBAUX = ['admin', 'utilisateur'] as const;
 export type RoleGlobal = (typeof ROLES_GLOBAUX)[number];
 
 /** Utilisateur renvoyé par `GET /api/auth/me` (champs utilisés ici). */

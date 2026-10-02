@@ -260,6 +260,8 @@ describe('ClientAuth', () => {
       { ...UTILISATEUR, pseudo: 1 },
       { ...UTILISATEUR, courriel: '' },
       { ...UTILISATEUR, role: 'roi' },
+      // Le modérateur n'existe que dans un serveur, pas comme rôle global.
+      { ...UTILISATEUR, role: 'moderateur' },
     ]) {
       fetchMock.mockResolvedValueOnce(reponse(200, corps));
       await expect(client().verifierJeton('jwt')).rejects.toBeInstanceOf(
