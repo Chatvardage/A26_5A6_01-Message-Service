@@ -9,6 +9,7 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+    tags: ['v*']
 
 permissions:
   contents: read
@@ -27,6 +28,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: node scripts/verifier-version.mjs
       - run: npm ci
       - run: npm run lint
       - run: npm run build
