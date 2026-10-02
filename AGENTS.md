@@ -4,7 +4,7 @@ Ce fichier contient les règles de travail pour tout agent IA ou développeur qu
 
 ## Contexte du projet
 
-Ce dépôt est le **Message-Service** de Chatvardage pour le Contrôle 2 du cours `420-5A6-ST – A26`.
+Ce dépôt est le **Message-Service** de Chatvardage.
 
 Architecture d'équipe :
 
@@ -67,6 +67,6 @@ Le conteneur tourne sous l'utilisateur `node` et exécute `prisma migrate deploy
 
 Mettre à jour le `README.md` et `docs/TEMPS_REEL_*.md` à chaque changement de route, d'événement Socket.IO ou de variable d'environnement, ainsi que `docs/API.md` de Serveur-API si le contrat vu par le Frontend change.
 
-## Documentation centrale du contrôle 2
+## Documentation centrale
 
-Infra est la référence du démarrage complet, des architectures, contrats et scénarios de remise. Le README local décrit le dépôt et ses commandes; les guides détaillés sont dans `A26_5A6_01-Infra/docs/`. Toute modification de contrat doit mettre à jour la référence centrale et ses liens. Mobile relève du contrôle 3.
+Infra est la référence du démarrage complet, des architectures, contrats et scénarios de validation. Le README local décrit le dépôt et ses commandes; les guides détaillés sont dans `A26_5A6_01-Infra/docs/`. Toute modification de contrat doit mettre à jour la référence centrale et ses liens.
