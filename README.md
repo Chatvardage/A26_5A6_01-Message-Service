@@ -36,6 +36,7 @@ La configuration complète, les routes, les exemples et les procédures Node/Rus
 
 ```bash
 npm ci
+npm audit --audit-level=high
 npx prisma generate
 npm run lint
 npm run test:cov -- --runInBand
