@@ -62,7 +62,10 @@ Une seule instance : sans adaptateur Redis de Socket.IO, la présence, les limit
 npm run lint
 npm run build
 npm run test:cov
+npm audit --audit-level=high
 ```
+
+**Audit des dépendances** : le CI lance `npm audit --audit-level=high` (dépendances de dev comprises). Si un avis `high` ou `critical` sans correctif compatible le bloque, forcer une version corrigée par un `overrides` ciblé dans `package.json` si elle existe ; sinon consigner l'exception (paquet, avis, raison, condition de retrait). Ne pas retirer ni affaiblir l'étape.
 
 La couverture est exigée à **100 %** (voir `coverageThreshold` dans `package.json`) : toute nouvelle branche atteignable doit être testée. Les tests unitaires simulent Prisma, Redis et les autres services.
 
