@@ -753,7 +753,9 @@ export class MessagesGateway
       typeof event.targetId !== 'string' ||
       typeof event.userId !== 'string' ||
       typeof event.lastReadAt !== 'string' ||
-      Number.isNaN(Date.parse(event.lastReadAt))
+      Number.isNaN(Date.parse(event.lastReadAt)) ||
+      (event.lastReadMessageId != null &&
+        typeof event.lastReadMessageId !== 'string')
     ) {
       this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
       return;
@@ -763,6 +765,7 @@ export class MessagesGateway
       targetId: event.targetId,
       userId: event.userId,
       lastReadAt: event.lastReadAt,
+      lastReadMessageId: event.lastReadMessageId ?? null,
     };
     if (message.kind === 'room') {
       this.server.to(`room:${message.targetId}`).emit(LECTURE_CHANNEL, message);

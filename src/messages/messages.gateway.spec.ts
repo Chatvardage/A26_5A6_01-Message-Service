@@ -771,6 +771,7 @@ describe('MessagesGateway', () => {
       targetId: 'u2',
       userId: 'u1',
       lastReadAt: '2026-10-06T12:00:00.000Z',
+      lastReadMessageId: null,
     };
     publier('read-state.updated', { ...dm, extra: 'ignoré' });
     expect(to).toHaveBeenLastCalledWith(['user:u1', 'user:u2']);
@@ -779,6 +780,15 @@ describe('MessagesGateway', () => {
     publier('read-state.updated', { ...dm, kind: 'room', targetId: 'r1' });
     expect(to).toHaveBeenLastCalledWith('room:r1');
     expect(emit).toHaveBeenCalledTimes(2);
+    publier('read-state.updated', { ...dm, lastReadMessageId: 'm1' });
+    expect(emit).toHaveBeenLastCalledWith('read-state.updated', {
+      ...dm,
+      lastReadMessageId: 'm1',
+    });
+    const ancien: Partial<typeof dm> = { ...dm };
+    delete ancien.lastReadMessageId;
+    publier('read-state.updated', ancien);
+    expect(emit).toHaveBeenLastCalledWith('read-state.updated', dm);
   });
 
   it.each([
@@ -789,6 +799,13 @@ describe('MessagesGateway', () => {
     { kind: 'dm', targetId: 't', userId: null, lastReadAt: 'd' },
     { kind: 'room', targetId: 't', userId: 'u', lastReadAt: 5 },
     { kind: 'room', targetId: 't', userId: 'u', lastReadAt: 'invalide' },
+    {
+      kind: 'dm',
+      targetId: 't',
+      userId: 'u',
+      lastReadAt: '2026-01-01T00:00:00Z',
+      lastReadMessageId: 1,
+    },
   ])('ignore un état de lecture invalide (%p)', async (payload) => {
     const publier = await brancherRedis();
     publier('read-state.updated', payload);

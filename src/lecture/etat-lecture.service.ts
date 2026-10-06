@@ -21,10 +21,15 @@ export type EvenementLecture = {
   targetId: string;
   userId: string;
   lastReadAt: string;
+  lastReadMessageId?: string | null;
 };
 
 /** État de lecture d'un autre utilisateur (accusés de lecture). */
-export type Lecteur = { userId: string; lastReadAt: Date | null };
+export type Lecteur = {
+  userId: string;
+  lastReadAt: Date | null;
+  lastReadMessageId: string | null;
+};
 
 /** Identifiant d'une conversation, le même que celui du client mobile :
  * `dm:<interlocuteur>` ou `room:<salon>`. */
@@ -205,9 +210,13 @@ export class EtatLectureService {
           targetId: userId,
         },
       },
-      select: { lastReadAt: true },
+      select: { lastReadAt: true, lastReadMessageId: true },
     });
-    return { userId: otherUserId, lastReadAt: etat?.lastReadAt ?? null };
+    return {
+      userId: otherUserId,
+      lastReadAt: etat?.lastReadAt ?? null,
+      lastReadMessageId: etat?.lastReadMessageId ?? null,
+    };
   }
 
   /**
@@ -224,7 +233,7 @@ export class EtatLectureService {
     }
     return this.prisma.conversationReadState.findMany({
       where: { kind: 'room', targetId: roomId, userId: { not: acteur.id } },
-      select: { userId: true, lastReadAt: true },
+      select: { userId: true, lastReadAt: true, lastReadMessageId: true },
       orderBy: [{ lastReadAt: 'desc' }, { userId: 'asc' }],
       take: LIMITE_LECTEURS_SALON,
     });
@@ -304,7 +313,7 @@ export class EtatLectureService {
       // Conversation vide : rien à marquer.
       const etat = await this.prisma.conversationReadState.findUnique({
         where: clef,
-        select: { lastReadAt: true },
+        select: { lastReadAt: true, lastReadMessageId: true },
       });
       return etat?.lastReadAt ?? null;
     }
@@ -340,7 +349,7 @@ export class EtatLectureService {
     });
     const etat = await this.prisma.conversationReadState.findUniqueOrThrow({
       where: clef,
-      select: { lastReadAt: true },
+      select: { lastReadAt: true, lastReadMessageId: true },
     });
     if (
       (cree.count > 0 || avance.count > 0) &&
@@ -351,6 +360,7 @@ export class EtatLectureService {
         targetId,
         userId,
         lastReadAt: etat.lastReadAt.toISOString(),
+        lastReadMessageId: etat.lastReadMessageId ?? null,
       };
       await this.redis.publish(CANAL_LECTURE, evenement);
     }

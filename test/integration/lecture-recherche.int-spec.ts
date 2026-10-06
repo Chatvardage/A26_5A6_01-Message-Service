@@ -140,6 +140,15 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     expect((await lecture.marquerSalonLu(moi, SALON, ids[0])).unreadCount).toBe(
       1,
     );
+    expect((await lecture.lecteurDm(ALICE, MOI)).lastReadMessageId).toBe(
+      ids[0],
+    );
+    expect(
+      (
+        await lecture.lecteursSalon({ id: ALICE, role: 'utilisateur' }, SALON)
+      )[0].lastReadMessageId,
+    ).toBe(ids[0]);
+    expect(publies[0][1]).toMatchObject({ lastReadMessageId: ids[0] });
     expect((await lecture.marquerDmLu(MOI, ALICE, ids[1])).unreadCount).toBe(0);
     expect((await lecture.marquerSalonLu(moi, SALON, ids[1])).unreadCount).toBe(
       0,
@@ -214,7 +223,7 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
   it('accusés de lecture : état des autres, publié seulement quand il avance', async () => {
     await dm(ALICE, MOI, 1);
     const reponse = await dm(MOI, ALICE, 2);
-    await salon(SALON, MOI, 11);
+    const messageSalon = await salon(SALON, MOI, 11);
     const lectureAlice = new EtatLectureService(
       prisma as PrismaService,
       roomsSimule(salons),
@@ -225,11 +234,13 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     await expect(lecture.lecteurDm(MOI, ALICE)).resolves.toEqual({
       userId: ALICE,
       lastReadAt: null,
+      lastReadMessageId: null,
     });
     await lectureAlice.marquerDmLu(ALICE, MOI);
     await expect(lecture.lecteurDm(MOI, ALICE)).resolves.toEqual({
       userId: ALICE,
       lastReadAt: reponse.createdAt,
+      lastReadMessageId: reponse.id,
     });
     expect(publies).toEqual([
       [
@@ -239,6 +250,7 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
           targetId: MOI,
           userId: ALICE,
           lastReadAt: reponse.createdAt.toISOString(),
+          lastReadMessageId: reponse.id,
         },
       ],
     ]);
@@ -252,7 +264,7 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     );
     await lecture.marquerSalonLu(moi, SALON);
     await expect(lecture.lecteursSalon(moi, SALON)).resolves.toEqual([
-      { userId: ALICE, lastReadAt: t(11) },
+      { userId: ALICE, lastReadAt: t(11), lastReadMessageId: messageSalon.id },
     ]);
   });
 

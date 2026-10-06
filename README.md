@@ -69,4 +69,11 @@ Les migrations appartiennent à ce dépôt (`prisma/` lorsqu’applicable); Infr
 
 ## Position et événements de lecture
 La position persistée utilise (lastReadAt, lastReadMessageId), dans le même ordre que l'historique. Deux messages de même milliseconde restent distincts. La migration 20261006194000_position_lecture ajoute une colonne nullable; les anciennes lectures sans identifiant couvrent toute leur date, comme avant.
-Les événements read-state.updated peuvent arriver dans le désordre avec des appels concurrents. Chaque consommateur doit appliquer lastReadAt de façon monotone : conserver la plus grande date entre son état et l'événement reçu. Une notification de sa propre lecture peut déclencher une relecture de l'état serveur. Le payload HTTP/Socket.IO reste compatible; l'identifiant supplémentaire sert au calcul des non-lus en base.
+Les événements read-state.updated peuvent arriver dans le désordre avec des appels concurrents. Chaque consommateur doit appliquer lastReadAt de façon monotone : conserver la position maximale `(lastReadAt, lastReadMessageId)` entre son état et l'événement reçu. Une notification de sa propre lecture peut déclencher une relecture de l'état serveur. Les réponses HTTP des lecteurs et les événements Socket.IO exposent aussi `lastReadMessageId` (nullable). À dates égales, comparer les identifiants dans l'ordre de l'historique; une ancienne lecture sans identifiant couvre toute cette date. Le champ est additif et les consommateurs doivent le conserver pour distinguer les coches des messages de même milliseconde.
+
+
+### Suite de la revue PR #9 — position et synchronisation des lectures
+
+Accusés : lastReadMessageId transmis par les réponses HTTP des lecteurs et les événements Redis/Socket.IO, avec null pour l’ancien contrat. Le consommateur compare la position complète; la date seule ne distingue pas deux messages de même milliseconde. Tests unitaires et tests PostgreSQL adaptés au contrat additif.
+
+Validation locale sous Node 24 : audit high, types (Frontend), lint, tests avec couverture et build. La validation manuelle Electron n’a pas été effectuée. Tests PostgreSQL non exécutés : aucune DATABASE_URL de test disponible et démarrage de la base jetable empêché par les permissions de l’environnement. La validation d’intégration reste requise avant fusion.

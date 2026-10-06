@@ -102,3 +102,10 @@ Validation : audit high, lint, build, 346 tests unitaires (couverture 100 %) et 
 - Messages de même milliseconde : position (lastReadAt, lastReadMessageId), alignée sur l'ordre de l'historique, pour les DM et salons. Nouvelle migration additive; les états existants sans id conservent leur sémantique historique (toute cette date est lue).
 - Ordre de publication Redis : pas de verrou distribué ajouté. Les événements sont des avancées idempotentes; chaque consommateur doit conserver max(date locale, date reçue), jamais affecter aveuglément le dernier événement reçu. Le frontend applique déjà Math.max dans traiterLectureDm et traiterLectureSalon; ses propres lectures déclenchent une relecture des compteurs en base. Ce contrat est explicité dans README. Cela résout le recul sans coupler les écritures SQL au transport Redis.
 Validation : audit high, lint, build, 347 tests unitaires (couverture 100 %) et 11 tests PostgreSQL passent. Migration appliquée uniquement sur chatvardage_messages_test; reconstruction du service requise au déploiement pour appliquer la migration sur sa base réelle.
+
+
+### Suite de la revue PR #9 — position et synchronisation des lectures
+
+Accusés : lastReadMessageId transmis par les réponses HTTP des lecteurs et les événements Redis/Socket.IO, avec null pour l’ancien contrat. Le consommateur compare la position complète; la date seule ne distingue pas deux messages de même milliseconde. Tests unitaires et tests PostgreSQL adaptés au contrat additif.
+
+Validation locale sous Node 24 : audit high, types (Frontend), lint, tests avec couverture et build. La validation manuelle Electron n’a pas été effectuée. Tests PostgreSQL non exécutés : aucune DATABASE_URL de test disponible et démarrage de la base jetable empêché par les permissions de l’environnement. La validation d’intégration reste requise avant fusion.

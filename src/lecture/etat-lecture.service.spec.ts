@@ -233,7 +233,7 @@ describe('EtatLectureService', () => {
             targetId: 'alice',
           },
         },
-        select: { lastReadAt: true },
+        select: { lastReadAt: true, lastReadMessageId: true },
       });
     });
 
@@ -351,6 +351,7 @@ describe('EtatLectureService', () => {
           targetId: 'alice',
           userId: 'moi',
           lastReadAt: t(2).toISOString(),
+          lastReadMessageId: null,
         });
       },
     );
@@ -374,10 +375,12 @@ describe('EtatLectureService', () => {
     it("lecteur d'un DM : l'état de l'interlocuteur sur cette conversation", async () => {
       prisma.conversationReadState.findUnique.mockResolvedValueOnce({
         lastReadAt: t(4),
+        lastReadMessageId: 'm4',
       });
       await expect(service.lecteurDm('moi', 'alice')).resolves.toEqual({
         userId: 'alice',
         lastReadAt: t(4),
+        lastReadMessageId: 'm4',
       });
       expect(prisma.conversationReadState.findUnique).toHaveBeenCalledWith({
         where: {
@@ -387,12 +390,13 @@ describe('EtatLectureService', () => {
             targetId: 'moi',
           },
         },
-        select: { lastReadAt: true },
+        select: { lastReadAt: true, lastReadMessageId: true },
       });
       prisma.conversationReadState.findUnique.mockResolvedValueOnce(null);
       await expect(service.lecteurDm('moi', 'bob')).resolves.toEqual({
         userId: 'bob',
         lastReadAt: null,
+        lastReadMessageId: null,
       });
     });
 
@@ -401,7 +405,7 @@ describe('EtatLectureService', () => {
       await expect(service.lecteursSalon(moi, 'r1')).resolves.toEqual(['l']);
       expect(prisma.conversationReadState.findMany).toHaveBeenCalledWith({
         where: { kind: 'room', targetId: 'r1', userId: { not: 'moi' } },
-        select: { userId: true, lastReadAt: true },
+        select: { userId: true, lastReadAt: true, lastReadMessageId: true },
         orderBy: [{ lastReadAt: 'desc' }, { userId: 'asc' }],
         take: LIMITE_LECTEURS_SALON,
       });
@@ -426,4 +430,34 @@ describe('EtatLectureService', () => {
       where: { kind: 'room', targetId: { in: ['r1', 'r2'] } },
     });
   });
+});
+
+it('publie la position complète du dernier message lu', async () => {
+  const prisma: any = {
+    privateMessage: {
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ id: 'm1', createdAt: new Date(1000) }),
+      groupBy: jest.fn().mockResolvedValue([]),
+    },
+    conversationReadState: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({
+        lastReadAt: new Date(1000),
+        lastReadMessageId: 'm1',
+      }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+  };
+  const redis: any = { publish: jest.fn() };
+  await new EtatLectureService(prisma, {} as any, redis).marquerDmLu(
+    'u1',
+    'u2',
+    'm1',
+  );
+  expect(redis.publish).toHaveBeenCalledWith(
+    'read-state.updated',
+    expect.objectContaining({ lastReadMessageId: 'm1' }),
+  );
 });
