@@ -109,3 +109,10 @@ Validation : audit high, lint, build, 347 tests unitaires (couverture 100 %) et 
 Accusés : lastReadMessageId transmis par les réponses HTTP des lecteurs et les événements Redis/Socket.IO, avec null pour l’ancien contrat. Le consommateur compare la position complète; la date seule ne distingue pas deux messages de même milliseconde. Tests unitaires et tests PostgreSQL adaptés au contrat additif.
 
 Validation locale sous Node 24 : audit high, types (Frontend), lint, tests avec couverture et build. La validation manuelle Electron n’a pas été effectuée. Tests PostgreSQL non exécutés : aucune DATABASE_URL de test disponible et démarrage de la base jetable empêché par les permissions de l’environnement. La validation d’intégration reste requise avant fusion.
+
+
+### Revue suivante PR #9 — invalidation des réponses en cours
+
+La génération des droits est capturée avant chaque requête Room-Service. Une invalidation pendant la réponse impose une nouvelle requête; une seconde invalidation répond 503 sans utiliser ni mémoriser les anciens droits. Le contrôle couvre salonsLisibles et verifierAcces. Quatre tests simulent une réponse retardée et des invalidations répétées, pour les listes et les accès individuels.
+
+Validation de cette correction : audit high, lint, build et 353 tests unitaires avec couverture 100 % passent sous Node 24. Aucun changement de requête PostgreSQL dans ce correctif de cache.

@@ -131,6 +131,8 @@ export class RoomsClientService {
     { salons: SalonLisible[]; expireA: number }
   >();
 
+  private generationInvalidation = 0;
+
   async verifierAcces(roomId: string, acteur: Acteur): Promise<AccesSalon> {
     const clef = `${roomId}|${acteur.id}|${acteur.role}`;
     const entree = this.cache.get(clef);
@@ -138,9 +140,16 @@ export class RoomsClientService {
       if (entree.expireA > Date.now()) return entree.acces;
       this.cache.delete(clef);
     }
-    const acces = await this.demanderAcces(roomId, acteur);
-    this.memoriser(this.cache, clef, { acces });
-    return acces;
+    for (let tentative = 0; tentative < 2; tentative += 1) {
+      const generation = this.generationInvalidation;
+      const acces = await this.demanderAcces(roomId, acteur);
+      if (generation !== this.generationInvalidation) continue;
+      this.memoriser(this.cache, clef, { acces });
+      return acces;
+    }
+    throw new ServiceUnavailableException(
+      'Droits des salons modifiés pendant la validation',
+    );
   }
 
   /** Salons que l'utilisateur peut lire (recherche, messages non lus). */
@@ -151,20 +160,30 @@ export class RoomsClientService {
       if (entree.expireA > Date.now()) return entree.salons;
       this.cacheListes.delete(clef);
     }
-    const corps = await this.lireJson(
-      `/api/internal/users/${encodeURIComponent(acteur.id)}` +
-        `/channels?role=${encodeURIComponent(acteur.role)}`,
-      null,
+    for (let tentative = 0; tentative < 2; tentative += 1) {
+      const generation = this.generationInvalidation;
+      const corps = await this.lireJson(
+        `/api/internal/users/${encodeURIComponent(acteur.id)}` +
+          `/channels?role=${encodeURIComponent(acteur.role)}`,
+        null,
+      );
+      if (generation !== this.generationInvalidation) continue;
+      const salons = lireSalonsLisibles(corps);
+      this.memoriser(this.cacheListes, clef, { salons });
+      return salons;
+    }
+    throw new ServiceUnavailableException(
+      'Droits des salons modifiés pendant la validation',
     );
-    const salons = lireSalonsLisibles(corps);
-    this.memoriser(this.cacheListes, clef, { salons });
-    return salons;
   }
 
   /** Oublie les accès mémorisés aux salons d'un serveur qui a changé, et
    * toutes les listes : un salon créé ou un serveur rejoint les modifie
    * sans qu'elles mentionnent encore ce serveur. */
   oublierServeur(serveurId: string): void {
+    // Une réponse commencée avant cet événement ne doit ni être utilisée
+    // ni remettre les anciens droits en cache. Une seule relance, puis 503.
+    this.generationInvalidation += 1;
     for (const [clef, { acces }] of this.cache) {
       if (acces.serveurId === serveurId) this.cache.delete(clef);
     }
