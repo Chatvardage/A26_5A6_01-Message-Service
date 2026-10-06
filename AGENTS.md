@@ -29,6 +29,7 @@ Architecture d'équipe :
 ## Responsabilités
 
 - persister les messages privés et de salon dans PostgreSQL (source de vérité) ;
+- persister l'état de lecture de chaque conversation (`ConversationReadState`), calculer les messages non lus et rechercher dans les seules conversations accessibles (salons lisibles fournis par Room-Service, `GET /api/internal/users/:userId/channels`) ;
 - publier chaque changement sur Redis **après** l'écriture en base, puis le diffuser par Socket.IO ;
 - relayer la présence, le profil, l'indicateur de saisie et les changements de serveur signalés par Room-Service (`/api/internal`, jeton interne) ;
 - limiter la fréquence des envois (`LimiteEnvoiService`) et des événements Socket.IO bavards.
@@ -66,6 +67,8 @@ npm run test:cov
 ```
 
 **Audit des dépendances** : le CI lance `npm audit --audit-level=high` (dépendances de dev comprises). Si un avis `high` ou `critical` sans correctif compatible le bloque, forcer une version corrigée par un `overrides` ciblé dans `package.json` si elle existe ; sinon consigner l'exception dans la section « Limites connues (acceptées) » ci-dessus (paquet, avis, raison, condition de retrait). Ne pas retirer ni affaiblir l'étape.
+
+Après un changement des requêtes de non-lus, d'état de lecture ou de recherche, lancer aussi `npm run test:integration` contre une base jetable (voir le README) : les tests unitaires simulent Prisma et ne prouvent pas le SQL réel (par exemple, Prisma n'échappe pas `%` et `_` dans `contains`).
 
 La couverture est exigée à **100 %** (voir `coverageThreshold` dans `package.json`) : toute nouvelle branche atteignable doit être testée. Les tests unitaires simulent Prisma, Redis et les autres services.
 

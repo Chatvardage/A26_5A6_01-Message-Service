@@ -1,6 +1,6 @@
 # Chatvardage — Messages et temps réel
 
-Microservice NestJS/Prisma : messages privés et de salon, historique, Redis Pub/Sub et Socket.IO. Il écrit dans PostgreSQL avant de publier chaque création, modification ou suppression individuelle.
+Microservice NestJS/Prisma : messages privés et de salon, historique, messages non lus, recherche, Redis Pub/Sub et Socket.IO. Il écrit dans PostgreSQL avant de publier chaque création, modification ou suppression individuelle.
 
 ## Lancer le service complet
 
@@ -42,6 +42,21 @@ npm run lint
 npm run test:cov -- --runInBand
 npm run build
 ```
+
+### Tests d'intégration (PostgreSQL réel)
+
+`npm run test:integration` exécute les vraies requêtes Prisma des non-lus, de l'état de lecture (y compris après un redémarrage, simulé par un nouveau client Prisma) et de la recherche. Les tests unitaires, eux, simulent Prisma. Ils exigent une base **jetable** dont le nom finit par `_test`, car chaque test vide les tables. Avec le PostgreSQL d'Infra démarré :
+
+```bash
+# Une seule fois : rôle et base de test (superutilisateur d'Infra)
+docker exec chatvardage-postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "CREATE ROLE ms_test LOGIN PASSWORD '"'"'ms_test'"'"';" -c "CREATE DATABASE chatvardage_messages_test OWNER ms_test;"'
+
+export DATABASE_URL="postgresql://ms_test:ms_test@localhost:5432/chatvardage_messages_test?schema=public"
+npx prisma migrate deploy
+npm run test:integration
+```
+
+Ils ne sont pas lancés par le CI, qui n'a pas de PostgreSQL.
 
 Les migrations appartiennent à ce dépôt (`prisma/` lorsqu’applicable); Infra crée uniquement les bases et les comptes SQL. Consulter [AGENTS.md](AGENTS.md) pour les règles et vérifications supplémentaires.
 
