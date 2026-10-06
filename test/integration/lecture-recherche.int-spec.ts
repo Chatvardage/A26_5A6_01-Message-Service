@@ -110,6 +110,46 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     await prisma.$disconnect();
   });
 
+  it('distingue les messages à date égale en DM et salon, sans recul', async () => {
+    const ids = [
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000002',
+    ];
+    for (const id of ids) {
+      await prisma.privateMessage.create({
+        data: {
+          id,
+          senderId: ALICE,
+          recipientId: MOI,
+          content: 'dm',
+          createdAt: t(20),
+        },
+      });
+      await prisma.roomMessage.create({
+        data: {
+          id,
+          roomId: SALON,
+          authorId: ALICE,
+          content: 'salon',
+          createdAt: t(20),
+        },
+      });
+    }
+    const { lecture } = services(prisma);
+    expect((await lecture.marquerDmLu(MOI, ALICE, ids[0])).unreadCount).toBe(1);
+    expect((await lecture.marquerSalonLu(moi, SALON, ids[0])).unreadCount).toBe(
+      1,
+    );
+    expect((await lecture.marquerDmLu(MOI, ALICE, ids[1])).unreadCount).toBe(0);
+    expect((await lecture.marquerSalonLu(moi, SALON, ids[1])).unreadCount).toBe(
+      0,
+    );
+    expect((await lecture.marquerDmLu(MOI, ALICE, ids[0])).unreadCount).toBe(0);
+    expect((await lecture.marquerSalonLu(moi, SALON, ids[0])).unreadCount).toBe(
+      0,
+    );
+  });
+
   it('compte les DM reçus après la dernière lecture, jamais les siens', async () => {
     await dm(ALICE, MOI, 1);
     const lu = await dm(ALICE, MOI, 2);

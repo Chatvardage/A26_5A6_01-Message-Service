@@ -39,6 +39,18 @@ export type EtatLecture = {
 };
 
 type Message = { id: string; createdAt: Date };
+type PositionLecture = { lastReadAt: Date; lastReadMessageId?: string | null };
+
+/** Même ordre que l'historique. Une ancienne lecture sans id couvre sa date. */
+const apresLecture = (etat: PositionLecture) =>
+  etat.lastReadMessageId
+    ? {
+        OR: [
+          { createdAt: { gt: etat.lastReadAt } },
+          { createdAt: etat.lastReadAt, id: { gt: etat.lastReadMessageId } },
+        ],
+      }
+    : { createdAt: { gt: etat.lastReadAt } };
 
 /**
  * Messages non lus et état de lecture (contrôle 3). PostgreSQL fait foi :
@@ -157,7 +169,7 @@ export class EtatLectureService {
         kind: 'dm',
         ...(seulement ? { targetId: seulement } : {}),
       },
-      select: { targetId: true, lastReadAt: true },
+      select: { targetId: true, lastReadAt: true, lastReadMessageId: true },
     });
     const lignes = await this.prisma.privateMessage.groupBy({
       by: ['senderId'],
@@ -168,7 +180,7 @@ export class EtatLectureService {
           // Conversations lues : seulement les messages plus récents.
           ...etats.map((e) => ({
             senderId: e.targetId,
-            createdAt: { gt: e.lastReadAt },
+            ...apresLecture(e),
           })),
           // Jamais lues : tous les messages reçus.
           { senderId: { notIn: etats.map((e) => e.targetId) } },
@@ -244,16 +256,19 @@ export class EtatLectureService {
         kind: 'room',
         targetId: { in: salons.map((s) => s.salonId) },
       },
-      select: { targetId: true, lastReadAt: true },
+      select: { targetId: true, lastReadAt: true, lastReadMessageId: true },
     });
-    const lus = new Map(etats.map((e) => [e.targetId, e.lastReadAt]));
+    const lus = new Map(etats.map((e) => [e.targetId, e]));
 
     // Seuil par salon : le plus récent entre la lecture et l'arrivée.
     const conditions: Prisma.RoomMessageWhereInput[] = [];
     for (const { salonId, depuis } of salons) {
       const lu = lus.get(salonId);
-      const seuil = lu && depuis ? (lu > depuis ? lu : depuis) : (lu ?? depuis);
-      if (seuil) conditions.push({ roomId: salonId, createdAt: { gt: seuil } });
+      if (lu && (!depuis || lu.lastReadAt >= depuis)) {
+        conditions.push({ roomId: salonId, ...apresLecture(lu) });
+      } else if (depuis) {
+        conditions.push({ roomId: salonId, createdAt: { gt: depuis } });
+      }
     }
     if (conditions.length === 0) return new Map();
 
@@ -297,12 +312,31 @@ export class EtatLectureService {
     // Création sans conflit (ON CONFLICT DO NOTHING), puis avance
     // conditionnelle : atomique même avec des appels simultanés.
     const cree = await this.prisma.conversationReadState.createMany({
-      data: [{ userId, kind, targetId, lastReadAt: message.createdAt }],
+      data: [
+        {
+          userId,
+          kind,
+          targetId,
+          lastReadAt: message.createdAt,
+          lastReadMessageId: message.id,
+        },
+      ],
       skipDuplicates: true,
     });
     const avance = await this.prisma.conversationReadState.updateMany({
-      where: { userId, kind, targetId, lastReadAt: { lt: message.createdAt } },
-      data: { lastReadAt: message.createdAt },
+      where: {
+        userId,
+        kind,
+        targetId,
+        OR: [
+          { lastReadAt: { lt: message.createdAt } },
+          {
+            lastReadAt: message.createdAt,
+            lastReadMessageId: { lt: message.id },
+          },
+        ],
+      },
+      data: { lastReadAt: message.createdAt, lastReadMessageId: message.id },
     });
     const etat = await this.prisma.conversationReadState.findUniqueOrThrow({
       where: clef,

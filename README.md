@@ -66,3 +66,7 @@ Les migrations appartiennent à ce dépôt (`prisma/` lorsqu’applicable); Infr
 - [API et événements](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/api/README.md)
 - [Scénario de validation](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/validation.md)
 - [Versions et publication](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/versions.md)
+
+## Position et événements de lecture
+La position persistée utilise (lastReadAt, lastReadMessageId), dans le même ordre que l'historique. Deux messages de même milliseconde restent distincts. La migration 20261006194000_position_lecture ajoute une colonne nullable; les anciennes lectures sans identifiant couvrent toute leur date, comme avant.
+Les événements read-state.updated peuvent arriver dans le désordre avec des appels concurrents. Chaque consommateur doit appliquer lastReadAt de façon monotone : conserver la plus grande date entre son état et l'événement reçu. Une notification de sa propre lecture peut déclencher une relecture de l'état serveur. Le payload HTTP/Socket.IO reste compatible; l'identifiant supplémentaire sert au calcul des non-lus en base.

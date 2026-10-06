@@ -97,3 +97,8 @@ Infra est la référence du démarrage complet, des architectures, contrats et s
 - Recherche sans limite de fréquence spécifique : limite connue, reportée en l'absence de saturation mesurée. Augmenter le minimum à trois caractères sans index trigramme ne supprime pas les scans. Avant une ouverture à une forte charge, mesurer les requêtes et ajouter une limite adaptée ou un index dans ce service.
 
 Validation : audit high, lint, build, 346 tests unitaires (couverture 100 %) et 10 tests d'intégration sur chatvardage_messages_test passent. Aucun avis high/critical; les avis modérés existants restent.
+
+### Nouvelle revue PR #9
+- Messages de même milliseconde : position (lastReadAt, lastReadMessageId), alignée sur l'ordre de l'historique, pour les DM et salons. Nouvelle migration additive; les états existants sans id conservent leur sémantique historique (toute cette date est lue).
+- Ordre de publication Redis : pas de verrou distribué ajouté. Les événements sont des avancées idempotentes; chaque consommateur doit conserver max(date locale, date reçue), jamais affecter aveuglément le dernier événement reçu. Le frontend applique déjà Math.max dans traiterLectureDm et traiterLectureSalon; ses propres lectures déclenchent une relecture des compteurs en base. Ce contrat est explicité dans README. Cela résout le recul sans coupler les écritures SQL au transport Redis.
+Validation : audit high, lint, build, 347 tests unitaires (couverture 100 %) et 11 tests PostgreSQL passent. Migration appliquée uniquement sur chatvardage_messages_test; reconstruction du service requise au déploiement pour appliquer la migration sur sa base réelle.

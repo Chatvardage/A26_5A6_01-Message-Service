@@ -63,7 +63,7 @@ describe('EtatLectureService', () => {
       );
       expect(prisma.conversationReadState.findMany).toHaveBeenCalledWith({
         where: { userId: 'moi', kind: 'dm' },
-        select: { targetId: true, lastReadAt: true },
+        select: { targetId: true, lastReadAt: true, lastReadMessageId: true },
       });
       expect(prisma.privateMessage.groupBy).toHaveBeenCalledWith({
         by: ['senderId'],
@@ -82,13 +82,24 @@ describe('EtatLectureService', () => {
       await service.compteursDm('moi', 'alice');
       expect(prisma.conversationReadState.findMany).toHaveBeenCalledWith({
         where: { userId: 'moi', kind: 'dm', targetId: 'alice' },
-        select: { targetId: true, lastReadAt: true },
+        select: { targetId: true, lastReadAt: true, lastReadMessageId: true },
       });
       expect(prisma.privateMessage.groupBy.mock.calls[0][0].where).toEqual({
         recipientId: 'moi',
         senderId: 'alice',
         OR: [{ senderId: { notIn: [] } }],
       });
+    });
+  });
+
+  it('compare aussi les identifiants des messages dans une même milliseconde', async () => {
+    prisma.conversationReadState.findMany.mockResolvedValue([
+      { targetId: 'alice', lastReadAt: t(2), lastReadMessageId: 'm1' },
+    ]);
+    await service.compteursDm('moi');
+    expect(prisma.privateMessage.groupBy.mock.calls[0][0].where.OR[0]).toEqual({
+      senderId: 'alice',
+      OR: [{ createdAt: { gt: t(2) } }, { createdAt: t(2), id: { gt: 'm1' } }],
     });
   });
 
@@ -195,6 +206,7 @@ describe('EtatLectureService', () => {
             kind: 'dm',
             targetId: 'alice',
             lastReadAt: t(2),
+            lastReadMessageId: 'm2',
           },
         ],
         skipDuplicates: true,
@@ -204,9 +216,12 @@ describe('EtatLectureService', () => {
           userId: 'moi',
           kind: 'dm',
           targetId: 'alice',
-          lastReadAt: { lt: t(2) },
+          OR: [
+            { lastReadAt: { lt: t(2) } },
+            { lastReadAt: t(2), lastReadMessageId: { lt: 'm2' } },
+          ],
         },
-        data: { lastReadAt: t(2) },
+        data: { lastReadAt: t(2), lastReadMessageId: 'm2' },
       });
       expect(
         prisma.conversationReadState.findUniqueOrThrow,
