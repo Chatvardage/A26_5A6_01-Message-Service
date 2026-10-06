@@ -213,6 +213,28 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     ]);
   });
 
+  it('limitée à une conversation : ni les autres DM ni les autres salons', async () => {
+    await dm(ALICE, MOI, 1, 'projet avec Alice');
+    await dm(BOB, MOI, 2, 'projet avec Bob');
+    await salon(SALON, ALICE, 3, 'projet du salon');
+    await salon(SALON_INTERDIT, ALICE, 4, 'projet interdit');
+    const { recherche } = services(prisma);
+    const contenus = async (conversationId: string) =>
+      (
+        await recherche.rechercher(moi, {
+          q: 'projet',
+          limit: 20,
+          conversationId,
+        })
+      ).results.map((r) => r.message.content);
+
+    expect(await contenus(`dm:${ALICE}`)).toEqual(['projet avec Alice']);
+    expect(await contenus(`room:${SALON}`)).toEqual(['projet du salon']);
+    await expect(contenus(`room:${SALON_INTERDIT}`)).rejects.toThrow(
+      'membre du salon',
+    );
+  });
+
   it('prend % et _ littéralement', async () => {
     await dm(ALICE, MOI, 1, 'remise de 50% ce soir');
     await dm(ALICE, MOI, 2, 'remise de 50 dollars');

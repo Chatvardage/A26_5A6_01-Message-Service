@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { RechercheQueryDto } from './dto/recherche-query.dto';
@@ -38,6 +38,7 @@ describe('RechercheService', () => {
       roomMessage: { findMany: jest.fn().mockResolvedValue([]) },
     };
     rooms = {
+      verifierAcces: jest.fn().mockResolvedValue({ peutLire: true }),
       salonsLisibles: jest
         .fn()
         .mockResolvedValue([{ salonId: 'r1', serveurId: 's', depuis: null }]),
@@ -147,6 +148,51 @@ describe('RechercheService', () => {
     );
   });
 
+  it('limitée à un DM : seulement les messages échangés avec cet interlocuteur', async () => {
+    await service.rechercher(moi, {
+      q: 'projet',
+      limit: 20,
+      conversationId: 'dm:alice',
+    });
+    expect(
+      prisma.privateMessage.findMany.mock.calls[0][0].where.AND[0],
+    ).toEqual({
+      OR: [
+        { senderId: 'moi', recipientId: 'alice' },
+        { senderId: 'alice', recipientId: 'moi' },
+      ],
+    });
+    expect(prisma.roomMessage.findMany).not.toHaveBeenCalled();
+    expect(rooms.salonsLisibles).not.toHaveBeenCalled();
+    expect(rooms.verifierAcces).not.toHaveBeenCalled();
+  });
+
+  it('limitée à un salon : droit de lecture vérifié, ni DM ni autres salons', async () => {
+    await service.rechercher(moi, {
+      q: 'projet',
+      limit: 20,
+      conversationId: 'room:r9',
+    });
+    expect(rooms.verifierAcces).toHaveBeenCalledWith('r9', moi);
+    expect(prisma.roomMessage.findMany.mock.calls[0][0].where.roomId).toEqual({
+      in: ['r9'],
+    });
+    expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
+    expect(rooms.salonsLisibles).not.toHaveBeenCalled();
+  });
+
+  it('salon illisible : 403, sans rien chercher', async () => {
+    rooms.verifierAcces.mockResolvedValue({ peutLire: false });
+    await expect(
+      service.rechercher(moi, {
+        q: 'projet',
+        limit: 20,
+        conversationId: 'room:r9',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.roomMessage.findMany).not.toHaveBeenCalled();
+  });
+
   it('échappe les caractères spéciaux de LIKE', () => {
     expect(echapperMotif('a%b_c\\d')).toBe('a\\%b\\_c\\\\d');
   });
@@ -167,6 +213,13 @@ describe('RechercheService', () => {
     expect(await erreurs({})).toEqual(['q']);
     expect(await erreurs({ q: 'ok', limit: '0' })).toEqual(['limit']);
     expect(await erreurs({ q: 'ok', limit: '51' })).toEqual(['limit']);
+    expect(await erreurs({ q: 'ok', conversationId: 'room:r1' })).toEqual([]);
+    expect(await erreurs({ q: 'ok', conversationId: 'dm:u1' })).toEqual([]);
+    for (const invalide of ['salon:r1', 'room:', 'dm:a:b', 'room']) {
+      expect(await erreurs({ q: 'ok', conversationId: invalide })).toEqual([
+        'conversationId',
+      ]);
+    }
     expect(await erreurs({ q: 'ok', cursor: 'x'.repeat(201) })).toEqual([
       'cursor',
     ]);

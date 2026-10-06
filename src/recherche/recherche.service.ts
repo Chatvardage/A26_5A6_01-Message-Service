@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { Prisma, PrivateMessage, RoomMessage } from '@prisma/client';
 import { idConversation } from '../lecture/etat-lecture.service';
 import { PrismaService } from '../prisma.service';
@@ -40,12 +44,22 @@ const plusRecentDAbord = (a: Position, b: Position) =>
   b.createdAt.getTime() - a.createdAt.getTime() ||
   (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 
+/** Où chercher : les DM retenus (`null` : aucun) et les salons retenus. */
+type Portee = {
+  dm: Prisma.PrivateMessageWhereInput | null;
+  salonIds: string[];
+};
+
 /**
  * Recherche textuelle dans les seules conversations accessibles : les DM
  * dont l'utilisateur est expéditeur ou destinataire, et les salons qu'il
  * peut lire selon Room-Service (aucune règle de droits recodée ici). Si
  * Room-Service ne répond pas, la recherche échoue (503) plutôt que de
  * renvoyer des résultats incomplets ou trop larges.
+ *
+ * `conversationId` (`dm:<interlocuteur>` ou `room:<salon>`) limite la
+ * recherche à cette conversation ; un salon illisible donne 403 (404 s'il
+ * n'existe pas), comme son historique.
  */
 @Injectable()
 export class RechercheService {
@@ -80,21 +94,15 @@ export class RechercheService {
     // Un de plus que demandé, pour savoir s'il reste une page.
     const take = query.limit + 1;
 
-    const salonIds = (await this.rooms.salonsLisibles(acteur)).map(
-      (s) => s.salonId,
-    );
+    const { dm, salonIds } = await this.portee(acteur, query.conversationId);
     const [dms, salons] = await Promise.all([
-      this.prisma.privateMessage.findMany({
-        where: {
-          AND: [
-            { OR: [{ senderId: acteur.id }, { recipientId: acteur.id }] },
-            avant,
-          ],
-          content: contenu,
-        },
-        orderBy: ordre,
-        take,
-      }),
+      dm === null
+        ? Promise.resolve([])
+        : this.prisma.privateMessage.findMany({
+            where: { AND: [dm, avant], content: contenu },
+            orderBy: ordre,
+            take,
+          }),
       salonIds.length === 0
         ? Promise.resolve([])
         : this.prisma.roomMessage.findMany({
@@ -130,5 +138,38 @@ export class RechercheService {
           ? encoderCurseur(results[results.length - 1].message)
           : null,
     };
+  }
+
+  private async portee(
+    acteur: Acteur,
+    conversationId: string | undefined,
+  ): Promise<Portee> {
+    if (!conversationId) {
+      const lisibles = await this.rooms.salonsLisibles(acteur);
+      return {
+        dm: { OR: [{ senderId: acteur.id }, { recipientId: acteur.id }] },
+        salonIds: lisibles.map((s) => s.salonId),
+      };
+    }
+    // Forme déjà validée par le DTO : `dm:<id>` ou `room:<id>`.
+    const [genre, cible] = conversationId.split(':');
+    if (genre === 'dm') {
+      return {
+        dm: {
+          OR: [
+            { senderId: acteur.id, recipientId: cible },
+            { senderId: cible, recipientId: acteur.id },
+          ],
+        },
+        salonIds: [],
+      };
+    }
+    const acces = await this.rooms.verifierAcces(cible, acteur);
+    if (!acces.peutLire) {
+      throw new ForbiddenException(
+        'Vous devez être membre du salon pour consulter ce contenu',
+      );
+    }
+    return { dm: null, salonIds: [cible] };
   }
 }

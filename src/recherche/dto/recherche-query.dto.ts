@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Length,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -39,4 +40,17 @@ export class RechercheQueryDto {
   @IsString()
   @MaxLength(200)
   cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 'room:00000000-0000-4000-8000-000000000003',
+    description:
+      'Limite la recherche à une conversation : `dm:<interlocuteur>` ou `room:<salon>`. Absent : toutes les conversations accessibles.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  @Matches(/^(dm|room):[^:]+$/, {
+    message: 'conversationId doit être de la forme dm:<id> ou room:<id>',
+  })
+  conversationId?: string;
 }
