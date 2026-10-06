@@ -788,6 +788,7 @@ describe('MessagesGateway', () => {
     { kind: 'dm', targetId: 1, userId: 'u', lastReadAt: 'd' },
     { kind: 'dm', targetId: 't', userId: null, lastReadAt: 'd' },
     { kind: 'room', targetId: 't', userId: 'u', lastReadAt: 5 },
+    { kind: 'room', targetId: 't', userId: 'u', lastReadAt: 'invalide' },
   ])('ignore un état de lecture invalide (%p)', async (payload) => {
     const publier = await brancherRedis();
     publier('read-state.updated', payload);

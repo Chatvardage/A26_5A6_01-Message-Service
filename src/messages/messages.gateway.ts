@@ -752,7 +752,8 @@ export class MessagesGateway
       (event?.kind !== 'dm' && event?.kind !== 'room') ||
       typeof event.targetId !== 'string' ||
       typeof event.userId !== 'string' ||
-      typeof event.lastReadAt !== 'string'
+      typeof event.lastReadAt !== 'string' ||
+      Number.isNaN(Date.parse(event.lastReadAt))
     ) {
       this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
       return;

@@ -308,7 +308,10 @@ export class EtatLectureService {
       where: clef,
       select: { lastReadAt: true },
     });
-    if (cree.count > 0 || avance.count > 0) {
+    if (
+      (cree.count > 0 || avance.count > 0) &&
+      etat.lastReadAt.getTime() === message.createdAt.getTime()
+    ) {
       const evenement: EvenementLecture = {
         kind,
         targetId,

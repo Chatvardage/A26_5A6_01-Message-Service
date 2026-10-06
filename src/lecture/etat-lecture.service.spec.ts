@@ -340,6 +340,17 @@ describe('EtatLectureService', () => {
       },
     );
 
+    it('ne republie pas une lecture avancée par un appel concurrent', async () => {
+      prisma.conversationReadState.createMany.mockResolvedValue({ count: 1 });
+      prisma.conversationReadState.findUniqueOrThrow.mockResolvedValue({
+        lastReadAt: t(4),
+      });
+      await expect(service.marquerDmLu('moi', 'alice')).resolves.toMatchObject({
+        lastReadAt: t(4),
+      });
+      expect(redis.publish).not.toHaveBeenCalled();
+    });
+
     it('état inchangé (déjà lu plus loin) : rien n’est publié', async () => {
       await service.marquerDmLu('moi', 'alice');
       expect(redis.publish).not.toHaveBeenCalled();

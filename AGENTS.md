@@ -83,3 +83,17 @@ Mettre à jour le `README.md` et `docs/TEMPS_REEL_*.md` à chaque changement de 
 ## Documentation centrale
 
 Infra est la référence du démarrage complet, des architectures, contrats et scénarios de validation. Le README local décrit le dépôt et ses commandes; les guides détaillés sont dans `A26_5A6_01-Infra/docs/`. Toute modification de contrat doit mettre à jour la référence centrale et ses liens.
+
+## Revue PR #9 — décisions du 6 octobre 2026
+
+- Publication concurrente : correction retenue; publier seulement si la lecture relue correspond encore à la date avancée par cet appel. L'état en base reste monotone et la réponse renvoie l'état courant. Une transaction supplémentaire n'est pas nécessaire pour ce correctif.
+- Date Redis invalide : correction retenue; la gateway rejette une date non interprétable avant de la transmettre aux clients.
+- Promise.all avec trois opérations et deux résultats : conservé; la troisième opération retourne void, son résultat est volontairement ignoré et son échec se propage. La séparer rendrait le nettoyage séquentiel sans améliorer sa fiabilité.
+- OR des compteurs DM : conservé; supprimer la clause des conversations jamais lues quand la liste des états est vide supprimerait précisément les non-lus à compter. Une optimisation SQL demande une mesure de charge, pas cette simplification.
+- Fusion de recherche : conservée; charger au plus deux fois limit + 1 lignes permet de déterminer la page globale et son curseur correctement. La limite maximale borne ce coût.
+- Curseur non signé : conservé; il ne donne aucun droit, la portée est recalculée depuis l'identité authentifiée. Naviguer dans ses propres résultats ne constitue pas une faille.
+- Alias LECTURE_CHANNEL : conservé; renommage stylistique sans correction de comportement.
+- Invalidation de toutes les listes après changement de serveur : conservée; elle privilégie les droits actuels au risque d'un cache périmé. Une indexation plus fine demande des mesures et une gestion supplémentaire des dépendances.
+- Recherche sans limite de fréquence spécifique : limite connue, reportée en l'absence de saturation mesurée. Augmenter le minimum à trois caractères sans index trigramme ne supprime pas les scans. Avant une ouverture à une forte charge, mesurer les requêtes et ajouter une limite adaptée ou un index dans ce service.
+
+Validation : audit high, lint, build, 346 tests unitaires (couverture 100 %) et 10 tests d'intégration sur chatvardage_messages_test passent. Aucun avis high/critical; les avis modérés existants restent.
