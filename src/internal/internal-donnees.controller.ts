@@ -10,6 +10,7 @@ import {
 import { ApiHeader, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { ArrayMaxSize, IsArray, IsString, MaxLength } from 'class-validator';
 import { DestinatairesService } from '../destinataires.service';
+import { EtatLectureService } from '../lecture/etat-lecture.service';
 import { MessagesService } from '../messages/messages.service';
 import { RoomMessagesService } from '../room-messages/room-messages.service';
 import {
@@ -41,6 +42,7 @@ export class InternalDonneesController {
     private readonly messages: MessagesService,
     private readonly roomMessages: RoomMessagesService,
     private readonly destinataires: DestinatairesService,
+    private readonly lecture: EtatLectureService,
   ) {}
 
   @Post('salons-supprimes')
@@ -52,9 +54,11 @@ export class InternalDonneesController {
   async salonsSupprimes(
     @Body() dto: SalonsSupprimesDto,
   ): Promise<{ messagesSalons: number }> {
-    return {
-      messagesSalons: await this.roomMessages.purgerSalons(dto.salonIds),
-    };
+    const [messagesSalons] = await Promise.all([
+      this.roomMessages.purgerSalons(dto.salonIds),
+      this.lecture.purgerSalons(dto.salonIds),
+    ]);
+    return { messagesSalons };
   }
 
   @Delete('users/:userId')
@@ -70,6 +74,7 @@ export class InternalDonneesController {
     const [messagesPrives, messagesSalons] = await Promise.all([
       this.messages.supprimerUtilisateur(userId),
       this.roomMessages.supprimerAuteur(userId),
+      this.lecture.supprimerUtilisateur(userId),
     ]);
     return { messagesPrives, messagesSalons };
   }

@@ -5,6 +5,8 @@ import { MessagesController } from './messages.controller';
 describe('MessagesController', () => {
   let service: any;
   let controller: MessagesController;
+  let lecture: any;
+  let recherche: any;
   const req: any = {
     auth: { id: 'u1', role: 'utilisateur' },
     headers: { authorization: 'Bearer jwt-u1' },
@@ -26,7 +28,13 @@ describe('MessagesController', () => {
       remove: jest.fn(),
       removeForAdmin: jest.fn(),
     };
-    controller = new MessagesController(service);
+    lecture = {
+      lecteurDm: jest.fn().mockResolvedValue('lecteur'),
+      marquerDmLu: jest.fn().mockResolvedValue('etat'),
+      compteurs: jest.fn().mockResolvedValue({ 'dm:u2': 1 }),
+    };
+    recherche = { rechercher: jest.fn().mockResolvedValue('page') };
+    controller = new MessagesController(service, lecture, recherche);
   });
 
   it('delegates authenticated CRUD operations', async () => {
@@ -97,4 +105,23 @@ describe('MessagesController', () => {
       ).toEqual([AdminGuard]);
     },
   );
+
+  it('délègue la lecture, les non-lus et la recherche', async () => {
+    await expect(
+      controller.markDmRead(req, 'u2', { messageId: 'm' }),
+    ).resolves.toBe('etat');
+    expect(lecture.marquerDmLu).toHaveBeenCalledWith('u1', 'u2', 'm');
+
+    await expect(controller.dmReadState(req, 'u2')).resolves.toBe('lecteur');
+    expect(lecture.lecteurDm).toHaveBeenCalledWith('u1', 'u2');
+
+    await expect(controller.unread(req)).resolves.toEqual({
+      counts: { 'dm:u2': 1 },
+    });
+    expect(lecture.compteurs).toHaveBeenCalledWith(req.auth);
+
+    const query = { q: 'salut', limit: 20 };
+    await expect(controller.search(req, query)).resolves.toBe('page');
+    expect(recherche.rechercher).toHaveBeenCalledWith(req.auth, query);
+  });
 });
