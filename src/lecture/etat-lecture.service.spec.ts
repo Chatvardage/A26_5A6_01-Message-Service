@@ -192,6 +192,7 @@ describe('EtatLectureService', () => {
       await expect(service.marquerDmLu('moi', 'alice')).resolves.toEqual({
         conversationId: 'dm:alice',
         lastReadAt: t(2),
+        lastReadMessageId: null,
         unreadCount: 1,
       });
       expect(prisma.privateMessage.findFirst).toHaveBeenCalledWith({
@@ -253,10 +254,12 @@ describe('EtatLectureService', () => {
       prisma.privateMessage.findFirst.mockResolvedValue(null);
       prisma.conversationReadState.findUnique.mockResolvedValueOnce({
         lastReadAt: t(1),
+        lastReadMessageId: 'conserve',
       });
       await expect(service.marquerDmLu('moi', 'alice')).resolves.toEqual({
         conversationId: 'dm:alice',
         lastReadAt: t(1),
+        lastReadMessageId: 'conserve',
         unreadCount: 0,
       });
 
@@ -267,6 +270,32 @@ describe('EtatLectureService', () => {
       expect(prisma.conversationReadState.createMany).not.toHaveBeenCalled();
     });
   });
+
+  it.each(['dm', 'room'])(
+    'renvoie la position persistée complète du PUT %s',
+    async (kind) => {
+      prisma.privateMessage.findFirst.mockResolvedValue({
+        id: 'm1',
+        createdAt: t(2),
+      });
+      prisma.roomMessage.findFirst.mockResolvedValue({
+        id: 'm1',
+        createdAt: t(2),
+      });
+      prisma.conversationReadState.findUniqueOrThrow.mockResolvedValue({
+        lastReadAt: t(2),
+        lastReadMessageId: 'm2',
+      });
+      const resultat =
+        kind === 'dm'
+          ? await service.marquerDmLu('moi', 'alice', 'm1')
+          : await service.marquerSalonLu(moi, 'r1', 'm1');
+      expect(resultat).toMatchObject({
+        lastReadAt: t(2),
+        lastReadMessageId: 'm2',
+      });
+    },
+  );
 
   describe('marquerSalonLu', () => {
     it('exige la lecture du salon', async () => {
@@ -299,6 +328,7 @@ describe('EtatLectureService', () => {
       await expect(service.marquerSalonLu(moi, 'r1', 'm3')).resolves.toEqual({
         conversationId: 'room:r1',
         lastReadAt: t(3),
+        lastReadMessageId: null,
         unreadCount: 2,
       });
       expect(prisma.roomMessage.findFirst.mock.calls[0][0].where).toEqual({

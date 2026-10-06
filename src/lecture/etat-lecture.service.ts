@@ -40,6 +40,7 @@ export type EtatLecture = {
   conversationId: string;
   /** Date du dernier message lu ; `null` si rien n'a encore été lu. */
   lastReadAt: Date | null;
+  lastReadMessageId: string | null;
   unreadCount: number;
 };
 
@@ -95,7 +96,7 @@ export class EtatLectureService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, createdAt: true },
     });
-    const lastReadAt = await this.avancer(
+    const position = await this.avancer(
       userId,
       'dm',
       otherUserId,
@@ -105,7 +106,7 @@ export class EtatLectureService {
     const compteurs = await this.compteursDm(userId, otherUserId);
     return {
       conversationId: idConversation('dm', otherUserId),
-      lastReadAt,
+      ...position,
       unreadCount: compteurs.get(otherUserId) ?? 0,
     };
   }
@@ -127,7 +128,7 @@ export class EtatLectureService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, createdAt: true },
     });
-    const lastReadAt = await this.avancer(
+    const position = await this.avancer(
       acteur.id,
       'room',
       roomId,
@@ -142,7 +143,7 @@ export class EtatLectureService {
     ]);
     return {
       conversationId: idConversation('room', roomId),
-      lastReadAt,
+      ...position,
       unreadCount: compteurs.get(roomId) ?? 0,
     };
   }
@@ -291,8 +292,8 @@ export class EtatLectureService {
 
   /**
    * Avance l'état jusqu'à `message` sans jamais le faire reculer (deux
-   * appareils peuvent marquer comme lu dans le désordre). Renvoie la date
-   * enregistrée, ou `null` si la conversation n'a jamais été lue. Une
+   * appareils peuvent marquer comme lu dans le désordre). Renvoie la position complète
+   * enregistrée, ou ses champs à `null` si la conversation n'a jamais été lue. Une
    * avancée réelle est ensuite publiée sur Redis (accusés de lecture en
    * temps réel), jamais avant l'écriture en base.
    */
@@ -302,7 +303,7 @@ export class EtatLectureService {
     targetId: string,
     message: Message | null,
     messageId: string | undefined,
-  ): Promise<Date | null> {
+  ): Promise<{ lastReadAt: Date | null; lastReadMessageId: string | null }> {
     const clef = { userId_kind_targetId: { userId, kind, targetId } };
     if (!message) {
       if (messageId) {
@@ -315,7 +316,10 @@ export class EtatLectureService {
         where: clef,
         select: { lastReadAt: true, lastReadMessageId: true },
       });
-      return etat?.lastReadAt ?? null;
+      return {
+        lastReadAt: etat?.lastReadAt ?? null,
+        lastReadMessageId: etat?.lastReadMessageId ?? null,
+      };
     }
 
     // Création sans conflit (ON CONFLICT DO NOTHING), puis avance
@@ -364,6 +368,9 @@ export class EtatLectureService {
       };
       await this.redis.publish(CANAL_LECTURE, evenement);
     }
-    return etat.lastReadAt;
+    return {
+      lastReadAt: etat.lastReadAt,
+      lastReadMessageId: etat.lastReadMessageId ?? null,
+    };
   }
 }

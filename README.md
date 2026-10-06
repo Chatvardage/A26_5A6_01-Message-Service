@@ -84,3 +84,8 @@ Validation locale sous Node 24 : audit high, types (Frontend), lint, tests avec 
 La génération des droits est capturée avant chaque requête Room-Service. Une invalidation pendant la réponse impose une nouvelle requête; une seconde invalidation répond 503 sans utiliser ni mémoriser les anciens droits. Le contrôle couvre salonsLisibles et verifierAcces. Quatre tests simulent une réponse retardée et des invalidations répétées, pour les listes et les accès individuels.
 
 Validation de cette correction : audit high, lint, build et 353 tests unitaires avec couverture 100 % passent sous Node 24. Aucun changement de requête PostgreSQL dans ce correctif de cache.
+
+
+### Suite de revue du 6 octobre — concurrence et contrat PUT
+
+Les deux PUT de lecture renvoient maintenant la position persistée complète `{ lastReadAt, lastReadMessageId }`, y compris si un autre appareil l’a avancée au message suivant de même milliseconde. Conversation vide : position existante conservée ou deux champs null. Contrat additif, sans nouvelle migration ni requête SQL. Validation : audit high, lint, build et 355 tests à couverture 100 % passent sous Node 24. Assertions PostgreSQL mises à jour mais non exécutées faute de base de test.

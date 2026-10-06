@@ -153,10 +153,14 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     expect((await lecture.marquerSalonLu(moi, SALON, ids[1])).unreadCount).toBe(
       0,
     );
-    expect((await lecture.marquerDmLu(MOI, ALICE, ids[0])).unreadCount).toBe(0);
-    expect((await lecture.marquerSalonLu(moi, SALON, ids[0])).unreadCount).toBe(
-      0,
-    );
+    expect(await lecture.marquerDmLu(MOI, ALICE, ids[0])).toMatchObject({
+      unreadCount: 0,
+      lastReadMessageId: ids[1],
+    });
+    expect(await lecture.marquerSalonLu(moi, SALON, ids[0])).toMatchObject({
+      unreadCount: 0,
+      lastReadMessageId: ids[1],
+    });
   });
 
   it('compte les DM reçus après la dernière lecture, jamais les siens', async () => {
