@@ -30,6 +30,10 @@ import { SERVEUR_CHANNEL } from '../internal/internal-events.controller';
 import { RedisService } from '../redis.service';
 import { RoomMessagesService } from '../room-messages/room-messages.service';
 import { RoomIdDto } from '../room-messages/dto/room-id.dto';
+import {
+  CANAL_LECTURE,
+  EvenementLecture,
+} from '../lecture/etat-lecture.service';
 import { SendRoomMessageDto } from '../room-messages/dto/send-room-message.dto';
 import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
 import { CreateMessageDto } from './dto/create-message.dto';
@@ -160,6 +164,11 @@ interface PresenceEvent {
   statut: 'en-ligne' | 'hors-ligne';
 }
 
+// Accusés de lecture (voir EtatLectureService) : un DM lu est signalé aux
+// deux personnes (l'autre voit ✓✓, mes autres appareils effacent leurs
+// non-lus), un salon lu à ceux qui l'ont rejoint (« Vu par »).
+const LECTURE_CHANNEL = CANAL_LECTURE;
+
 const ROOM_MESSAGE_CHANNELS = [
   'room-message.created',
   'room-message.updated',
@@ -266,6 +275,7 @@ export class MessagesGateway
         PRESENCE_CHANNEL,
         PROFIL_CHANNEL,
         SERVEUR_CHANNEL,
+        LECTURE_CHANNEL,
       ],
       (channel, payload) => this.broadcastRedisEvent(channel, payload),
     );
@@ -666,6 +676,11 @@ export class MessagesGateway
       return;
     }
 
+    if (channel === LECTURE_CHANNEL) {
+      this.broadcastLectureEvent(payload);
+      return;
+    }
+
     this.logger.warn(`Canal Redis invalide ignoré: ${channel}`);
   }
 
@@ -728,6 +743,33 @@ export class MessagesGateway
       return;
     }
     this.server.emit(PROFIL_CHANNEL, { userId: event.userId });
+  }
+
+  /** Relaie un état de lecture qui avance (voir LECTURE_CHANNEL). */
+  private broadcastLectureEvent(payload: string): void {
+    const event = this.lireJson(payload) as Partial<EvenementLecture> | null;
+    if (
+      (event?.kind !== 'dm' && event?.kind !== 'room') ||
+      typeof event.targetId !== 'string' ||
+      typeof event.userId !== 'string' ||
+      typeof event.lastReadAt !== 'string'
+    ) {
+      this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
+      return;
+    }
+    const message: EvenementLecture = {
+      kind: event.kind,
+      targetId: event.targetId,
+      userId: event.userId,
+      lastReadAt: event.lastReadAt,
+    };
+    if (message.kind === 'room') {
+      this.server.to(`room:${message.targetId}`).emit(LECTURE_CHANNEL, message);
+    } else {
+      this.server
+        .to([`user:${message.userId}`, `user:${message.targetId}`])
+        .emit(LECTURE_CHANNEL, message);
+    }
   }
 
   /** Relaie un changement de serveur à chacun des membres concernés. */

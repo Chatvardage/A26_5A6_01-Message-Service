@@ -21,7 +21,10 @@ describe('RoomMessagesController', () => {
       update: jest.fn(),
       remove: jest.fn(),
     };
-    lecture = { marquerSalonLu: jest.fn().mockResolvedValue('etat') };
+    lecture = {
+      marquerSalonLu: jest.fn().mockResolvedValue('etat'),
+      lecteursSalon: jest.fn().mockResolvedValue(['l']),
+    };
     controller = new RoomMessagesController(service, lecture);
   });
 
@@ -86,5 +89,9 @@ describe('RoomMessagesController', () => {
       'r1',
       undefined,
     );
+    await expect(controller.readStates(req, 'r1')).resolves.toEqual({
+      lecteurs: ['l'],
+    });
+    expect(lecture.lecteursSalon).toHaveBeenCalledWith(req.auth, 'r1');
   });
 });

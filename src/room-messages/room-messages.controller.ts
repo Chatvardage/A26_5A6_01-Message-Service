@@ -24,6 +24,7 @@ import { MarquerLuDto } from '../lecture/dto/marquer-lu.dto';
 import {
   EtatLecture,
   EtatLectureService,
+  Lecteur,
 } from '../lecture/etat-lecture.service';
 import { extraireJetonBearer } from '../partage/client-auth';
 import { CreateAdminRoomMessageDto } from './dto/create-admin-room-message.dto';
@@ -87,6 +88,19 @@ export class RoomMessagesController {
     @Body() dto: MarquerLuDto,
   ): Promise<EtatLecture> {
     return this.lecture.marquerSalonLu(req.auth, roomId, dto.messageId);
+  }
+
+  @Get(':roomId/read-states')
+  @ApiOperation({
+    summary: 'Lecteurs du salon (« Vu par »)',
+    description:
+      "Lecture du salon requise. Autres membres et date du dernier message qu'ils ont lu, du plus récent au plus ancien (100 au plus).",
+  })
+  async readStates(
+    @Req() req: AuthenticatedRequest,
+    @Param('roomId') roomId: string,
+  ): Promise<{ lecteurs: Lecteur[] }> {
+    return { lecteurs: await this.lecture.lecteursSalon(req.auth, roomId) };
   }
 
   // Avant ':roomId/:id' : Express essaie les routes dans l'ordre de

@@ -5,7 +5,26 @@ import {
 } from '@nestjs/common';
 import { ConversationKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
+import { RedisService } from '../redis.service';
 import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
+
+/** Canal Redis (et événement Socket.IO) d'un état de lecture qui avance. */
+export const CANAL_LECTURE = 'read-state.updated';
+
+/** Lecteurs d'un salon renvoyés au plus (les plus récents d'abord). */
+export const LIMITE_LECTEURS_SALON = 100;
+
+/** Publié sur CANAL_LECTURE après chaque avancée enregistrée en base :
+ * `userId` a lu la conversation `kind`/`targetId` jusqu'à `lastReadAt`. */
+export type EvenementLecture = {
+  kind: ConversationKind;
+  targetId: string;
+  userId: string;
+  lastReadAt: string;
+};
+
+/** État de lecture d'un autre utilisateur (accusés de lecture). */
+export type Lecteur = { userId: string; lastReadAt: Date | null };
 
 /** Identifiant d'une conversation, le même que celui du client mobile :
  * `dm:<interlocuteur>` ou `room:<salon>`. */
@@ -39,6 +58,7 @@ export class EtatLectureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rooms: RoomsClientService,
+    private readonly redis: RedisService,
   ) {}
 
   /** Marque un DM comme lu jusqu'à `messageId`, ou jusqu'au dernier message. */
@@ -159,6 +179,45 @@ export class EtatLectureService {
     return new Map(lignes.map((l) => [l.senderId, l._count._all]));
   }
 
+  /**
+   * Accusé de lecture d'un DM : jusqu'où l'interlocuteur a lu la
+   * conversation (`null` : jamais). Ne révèle rien d'autre que ce que
+   * l'interlocuteur a lu de messages échangés avec l'appelant.
+   */
+  async lecteurDm(userId: string, otherUserId: string): Promise<Lecteur> {
+    const etat = await this.prisma.conversationReadState.findUnique({
+      where: {
+        userId_kind_targetId: {
+          userId: otherUserId,
+          kind: 'dm',
+          targetId: userId,
+        },
+      },
+      select: { lastReadAt: true },
+    });
+    return { userId: otherUserId, lastReadAt: etat?.lastReadAt ?? null };
+  }
+
+  /**
+   * Lecteurs d'un salon (« Vu par »), sauf l'appelant, du plus récent au
+   * plus ancien, LIMITE_LECTEURS_SALON au plus. Il faut pouvoir lire le
+   * salon. Un ancien membre qui l'avait lu peut encore y figurer.
+   */
+  async lecteursSalon(acteur: Acteur, roomId: string): Promise<Lecteur[]> {
+    const acces = await this.rooms.verifierAcces(roomId, acteur);
+    if (!acces.peutLire) {
+      throw new ForbiddenException(
+        'Vous devez être membre du salon pour consulter ce contenu',
+      );
+    }
+    return this.prisma.conversationReadState.findMany({
+      where: { kind: 'room', targetId: roomId, userId: { not: acteur.id } },
+      select: { userId: true, lastReadAt: true },
+      orderBy: [{ lastReadAt: 'desc' }, { userId: 'asc' }],
+      take: LIMITE_LECTEURS_SALON,
+    });
+  }
+
   /** Compte supprimé (route interne) : ses états, et ceux des autres sur
    * leurs conversations privées avec lui (effacées elles aussi). */
   async supprimerUtilisateur(userId: string): Promise<void> {
@@ -209,7 +268,9 @@ export class EtatLectureService {
   /**
    * Avance l'état jusqu'à `message` sans jamais le faire reculer (deux
    * appareils peuvent marquer comme lu dans le désordre). Renvoie la date
-   * enregistrée, ou `null` si la conversation n'a jamais été lue.
+   * enregistrée, ou `null` si la conversation n'a jamais été lue. Une
+   * avancée réelle est ensuite publiée sur Redis (accusés de lecture en
+   * temps réel), jamais avant l'écriture en base.
    */
   private async avancer(
     userId: string,
@@ -235,11 +296,11 @@ export class EtatLectureService {
 
     // Création sans conflit (ON CONFLICT DO NOTHING), puis avance
     // conditionnelle : atomique même avec des appels simultanés.
-    await this.prisma.conversationReadState.createMany({
+    const cree = await this.prisma.conversationReadState.createMany({
       data: [{ userId, kind, targetId, lastReadAt: message.createdAt }],
       skipDuplicates: true,
     });
-    await this.prisma.conversationReadState.updateMany({
+    const avance = await this.prisma.conversationReadState.updateMany({
       where: { userId, kind, targetId, lastReadAt: { lt: message.createdAt } },
       data: { lastReadAt: message.createdAt },
     });
@@ -247,6 +308,15 @@ export class EtatLectureService {
       where: clef,
       select: { lastReadAt: true },
     });
+    if (cree.count > 0 || avance.count > 0) {
+      const evenement: EvenementLecture = {
+        kind,
+        targetId,
+        userId,
+        lastReadAt: etat.lastReadAt.toISOString(),
+      };
+      await this.redis.publish(CANAL_LECTURE, evenement);
+    }
     return etat.lastReadAt;
   }
 }

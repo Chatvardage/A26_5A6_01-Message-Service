@@ -11,6 +11,7 @@ import { PrismaClient } from '@prisma/client';
 import { EtatLectureService } from '../../src/lecture/etat-lecture.service';
 import type { PrismaService } from '../../src/prisma.service';
 import { RechercheService } from '../../src/recherche/recherche.service';
+import type { RedisService } from '../../src/redis.service';
 import type {
   Acteur,
   RoomsClientService,
@@ -32,6 +33,15 @@ const SALON_INTERDIT = '00000000-0000-4000-8000-0000000000d2';
 const moi: Acteur = { id: MOI, role: 'utilisateur' };
 
 const t = (minute: number) => new Date(Date.UTC(2026, 9, 6, 12, minute, 0, 0));
+
+/** Redis simulé : les événements publiés sont gardés pour vérification. */
+const publies: unknown[][] = [];
+const redisSimule = {
+  publish: (...args: unknown[]) => {
+    publies.push(args);
+    return Promise.resolve(1);
+  },
+} as unknown as RedisService;
 
 /** Room-Service simulé : seule la frontière HTTP l'est, pas la base. */
 function roomsSimule(salons: SalonLisible[]): RoomsClientService {
@@ -77,6 +87,7 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     lecture: new EtatLectureService(
       client as PrismaService,
       roomsSimule(salons),
+      redisSimule,
     ),
     recherche: new RechercheService(
       client as PrismaService,
@@ -89,6 +100,7 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
   });
 
   beforeEach(async () => {
+    publies.length = 0;
     await prisma.$executeRawUnsafe(
       'TRUNCATE "PrivateMessage", "RoomMessage", "ConversationReadState"',
     );
@@ -157,6 +169,51 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     await expect(lecture.marquerSalonLu(moi, SALON_INTERDIT)).rejects.toThrow(
       'membre du salon',
     );
+  });
+
+  it('accusés de lecture : état des autres, publié seulement quand il avance', async () => {
+    await dm(ALICE, MOI, 1);
+    const reponse = await dm(MOI, ALICE, 2);
+    await salon(SALON, MOI, 11);
+    const lectureAlice = new EtatLectureService(
+      prisma as PrismaService,
+      roomsSimule(salons),
+      redisSimule,
+    );
+    const { lecture } = services(prisma);
+
+    await expect(lecture.lecteurDm(MOI, ALICE)).resolves.toEqual({
+      userId: ALICE,
+      lastReadAt: null,
+    });
+    await lectureAlice.marquerDmLu(ALICE, MOI);
+    await expect(lecture.lecteurDm(MOI, ALICE)).resolves.toEqual({
+      userId: ALICE,
+      lastReadAt: reponse.createdAt,
+    });
+    expect(publies).toEqual([
+      [
+        'read-state.updated',
+        {
+          kind: 'dm',
+          targetId: MOI,
+          userId: ALICE,
+          lastReadAt: reponse.createdAt.toISOString(),
+        },
+      ],
+    ]);
+    // Déjà lu jusque-là : rien de plus n'est publié.
+    await lectureAlice.marquerDmLu(ALICE, MOI);
+    expect(publies).toHaveLength(1);
+
+    await lectureAlice.marquerSalonLu(
+      { id: ALICE, role: 'utilisateur' },
+      SALON,
+    );
+    await lecture.marquerSalonLu(moi, SALON);
+    await expect(lecture.lecteursSalon(moi, SALON)).resolves.toEqual([
+      { userId: ALICE, lastReadAt: t(11) },
+    ]);
   });
 
   it('les compteurs sont identiques après un redémarrage du service', async () => {

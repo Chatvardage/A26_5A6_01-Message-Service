@@ -116,6 +116,7 @@ describe('MessagesGateway', () => {
         'presence.changed',
         'profil.changed',
         'serveur.change',
+        'read-state.updated',
       ],
       expect.any(Function),
     );
@@ -761,6 +762,36 @@ describe('MessagesGateway', () => {
     expect(serverEmit.mock.calls).toEqual([
       ['profil.changed', { userId: 'u1' }],
     ]);
+  });
+
+  it('relaie un état de lecture : DM aux deux personnes, salon à sa room', async () => {
+    const publier = await brancherRedis();
+    const dm = {
+      kind: 'dm',
+      targetId: 'u2',
+      userId: 'u1',
+      lastReadAt: '2026-10-06T12:00:00.000Z',
+    };
+    publier('read-state.updated', { ...dm, extra: 'ignoré' });
+    expect(to).toHaveBeenLastCalledWith(['user:u1', 'user:u2']);
+    expect(emit).toHaveBeenLastCalledWith('read-state.updated', dm);
+
+    publier('read-state.updated', { ...dm, kind: 'room', targetId: 'r1' });
+    expect(to).toHaveBeenLastCalledWith('room:r1');
+    expect(emit).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    'pas du json',
+    'null',
+    { kind: 'groupe', targetId: 't', userId: 'u', lastReadAt: 'd' },
+    { kind: 'dm', targetId: 1, userId: 'u', lastReadAt: 'd' },
+    { kind: 'dm', targetId: 't', userId: null, lastReadAt: 'd' },
+    { kind: 'room', targetId: 't', userId: 'u', lastReadAt: 5 },
+  ])('ignore un état de lecture invalide (%p)', async (payload) => {
+    const publier = await brancherRedis();
+    publier('read-state.updated', payload);
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it('relays a server change to each listed user only', async () => {

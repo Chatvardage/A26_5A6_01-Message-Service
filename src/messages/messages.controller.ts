@@ -24,6 +24,7 @@ import { MarquerLuDto } from '../lecture/dto/marquer-lu.dto';
 import {
   EtatLecture,
   EtatLectureService,
+  Lecteur,
 } from '../lecture/etat-lecture.service';
 import { extraireJetonBearer } from '../partage/client-auth';
 import { RechercheQueryDto } from '../recherche/dto/recherche-query.dto';
@@ -146,6 +147,19 @@ export class MessagesController {
     @Body() dto: MarquerLuDto,
   ): Promise<EtatLecture> {
     return this.lecture.marquerDmLu(req.auth.id, otherUserId, dto.messageId);
+  }
+
+  @Get('conversations/:otherUserId/read-state')
+  @ApiOperation({
+    summary: "Accusé de lecture d'une conversation privée",
+    description:
+      "Jusqu'où l'interlocuteur a lu la conversation (`lastReadAt`, `null` s'il ne l'a jamais lue).",
+  })
+  dmReadState(
+    @Req() req: AuthenticatedRequest,
+    @Param('otherUserId') otherUserId: string,
+  ): Promise<Lecteur> {
+    return this.lecture.lecteurDm(req.auth.id, otherUserId);
   }
 
   @Get('unread')

@@ -1,11 +1,16 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { EtatLectureService, idConversation } from './etat-lecture.service';
+import {
+  EtatLectureService,
+  LIMITE_LECTEURS_SALON,
+  idConversation,
+} from './etat-lecture.service';
 
 describe('EtatLectureService', () => {
   const t = (minute: number) => new Date(Date.UTC(2026, 9, 6, 12, minute));
   const moi = { id: 'moi', role: 'utilisateur' as const };
   let prisma: any;
   let rooms: any;
+  let redis: any;
   let service: EtatLectureService;
 
   beforeEach(() => {
@@ -22,8 +27,8 @@ describe('EtatLectureService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),
-        createMany: jest.fn(),
-        updateMany: jest.fn(),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         deleteMany: jest.fn(),
       },
     };
@@ -31,7 +36,8 @@ describe('EtatLectureService', () => {
       verifierAcces: jest.fn().mockResolvedValue({ peutLire: true }),
       salonsLisibles: jest.fn().mockResolvedValue([]),
     };
-    service = new EtatLectureService(prisma, rooms);
+    redis = { publish: jest.fn() };
+    service = new EtatLectureService(prisma, rooms, redis);
   });
 
   it('forme les identifiants de conversation du client mobile', () => {
@@ -303,6 +309,81 @@ describe('EtatLectureService', () => {
       expect(prisma.roomMessage.findFirst.mock.calls[0][0].where).toEqual({
         roomId: 'r1',
       });
+    });
+  });
+
+  describe('accusés de lecture', () => {
+    const message = { id: 'm2', createdAt: t(2) };
+
+    beforeEach(() => {
+      prisma.privateMessage.findFirst.mockResolvedValue(message);
+      prisma.conversationReadState.findUniqueOrThrow.mockResolvedValue({
+        lastReadAt: t(2),
+      });
+    });
+
+    it.each([
+      ['créé', { count: 1 }, { count: 0 }],
+      ['avancé', { count: 0 }, { count: 1 }],
+    ])(
+      'état %s : publié sur Redis après l’écriture',
+      async (_cas, cree, avance) => {
+        prisma.conversationReadState.createMany.mockResolvedValue(cree);
+        prisma.conversationReadState.updateMany.mockResolvedValue(avance);
+        await service.marquerDmLu('moi', 'alice');
+        expect(redis.publish).toHaveBeenCalledWith('read-state.updated', {
+          kind: 'dm',
+          targetId: 'alice',
+          userId: 'moi',
+          lastReadAt: t(2).toISOString(),
+        });
+      },
+    );
+
+    it('état inchangé (déjà lu plus loin) : rien n’est publié', async () => {
+      await service.marquerDmLu('moi', 'alice');
+      expect(redis.publish).not.toHaveBeenCalled();
+    });
+
+    it("lecteur d'un DM : l'état de l'interlocuteur sur cette conversation", async () => {
+      prisma.conversationReadState.findUnique.mockResolvedValueOnce({
+        lastReadAt: t(4),
+      });
+      await expect(service.lecteurDm('moi', 'alice')).resolves.toEqual({
+        userId: 'alice',
+        lastReadAt: t(4),
+      });
+      expect(prisma.conversationReadState.findUnique).toHaveBeenCalledWith({
+        where: {
+          userId_kind_targetId: {
+            userId: 'alice',
+            kind: 'dm',
+            targetId: 'moi',
+          },
+        },
+        select: { lastReadAt: true },
+      });
+      prisma.conversationReadState.findUnique.mockResolvedValueOnce(null);
+      await expect(service.lecteurDm('moi', 'bob')).resolves.toEqual({
+        userId: 'bob',
+        lastReadAt: null,
+      });
+    });
+
+    it("lecteurs d'un salon : les autres, plus récents d'abord, lecture requise", async () => {
+      prisma.conversationReadState.findMany.mockResolvedValue(['l']);
+      await expect(service.lecteursSalon(moi, 'r1')).resolves.toEqual(['l']);
+      expect(prisma.conversationReadState.findMany).toHaveBeenCalledWith({
+        where: { kind: 'room', targetId: 'r1', userId: { not: 'moi' } },
+        select: { userId: true, lastReadAt: true },
+        orderBy: [{ lastReadAt: 'desc' }, { userId: 'asc' }],
+        take: LIMITE_LECTEURS_SALON,
+      });
+
+      rooms.verifierAcces.mockResolvedValue({ peutLire: false });
+      await expect(service.lecteursSalon(moi, 'r1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
   });
 
