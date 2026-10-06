@@ -89,3 +89,8 @@ Validation de cette correction : audit high, lint, build et 353 tests unitaires 
 ### Suite de revue du 6 octobre — concurrence et contrat PUT
 
 Les deux PUT de lecture renvoient maintenant la position persistée complète `{ lastReadAt, lastReadMessageId }`, y compris si un autre appareil l’a avancée au message suivant de même milliseconde. Conversation vide : position existante conservée ou deux champs null. Contrat additif, sans nouvelle migration ni requête SQL. Validation : audit high, lint, build et 355 tests à couverture 100 % passent sous Node 24. Assertions PostgreSQL mises à jour mais non exécutées faute de base de test.
+
+### Vérification de la chaîne de migrations
+
+L’observation signalant l’absence des tables de messages est infirmée par la chaîne complète : `20260916163000_init` crée `PrivateMessage` avec ses deux index, puis `20260923130000_add_room_message` crée `RoomMessage` et son index. `20261006175849_etat_lecture` et `20261006194000_position_lecture` ajoutent ensuite l’état de lecture. Une base neuve exécutant `prisma migrate deploy` parcourt ces migrations dans cet ordre; aucune migration corrective ni inscription manuelle sur les bases existantes n’est requise.
+\n\n
