@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,7 +20,17 @@ import {
 import { PrivateMessage } from '@prisma/client';
 import { AdminGuard } from '../auth/admin.guard';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { MarquerLuDto } from '../lecture/dto/marquer-lu.dto';
+import {
+  EtatLecture,
+  EtatLectureService,
+} from '../lecture/etat-lecture.service';
 import { extraireJetonBearer } from '../partage/client-auth';
+import { RechercheQueryDto } from '../recherche/dto/recherche-query.dto';
+import {
+  PageRecherche,
+  RechercheService,
+} from '../recherche/recherche.service';
 import { ConversationSummary } from './dto/conversation-summary.dto';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
@@ -32,7 +43,11 @@ import { MessagesService } from './messages.service';
 @Controller('messages')
 @UseGuards(JwtAuthGuard)
 export class MessagesController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly lecture: EtatLectureService,
+    private readonly recherche: RechercheService,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -119,8 +134,47 @@ export class MessagesController {
     return this.messages.listConversations(req.auth.id);
   }
 
+  @Put('conversations/:otherUserId/read')
+  @ApiOperation({
+    summary: 'Marque une conversation privée comme lue',
+    description:
+      "Jusqu'à `messageId`, ou jusqu'au dernier message. L'état ne recule jamais.",
+  })
+  markDmRead(
+    @Req() req: AuthenticatedRequest,
+    @Param('otherUserId') otherUserId: string,
+    @Body() dto: MarquerLuDto,
+  ): Promise<EtatLecture> {
+    return this.lecture.marquerDmLu(req.auth.id, otherUserId, dto.messageId);
+  }
+
+  @Get('unread')
+  @ApiOperation({
+    summary: 'Mes messages non lus',
+    description:
+      '`{ counts: { "dm:<id>": n, "room:<id>": n } }`, DM et salons lisibles ; seules les conversations avec des non-lus sont présentes.',
+  })
+  async unread(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ counts: Record<string, number> }> {
+    return { counts: await this.lecture.compteurs(req.auth) };
+  }
+
+  @Get('search')
+  @ApiOperation({
+    summary: 'Recherche dans mes conversations',
+    description:
+      'DM et salons lisibles seulement, du plus récent au plus ancien, paginé par `cursor`.',
+  })
+  search(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: RechercheQueryDto,
+  ): Promise<PageRecherche> {
+    return this.recherche.rechercher(req.auth, query);
+  }
+
   // En dernier : Express essaie les routes dans l'ordre de déclaration,
-  // ':id' capturerait sinon `admin` et `conversations`.
+  // ':id' capturerait sinon `admin`, `conversations`, `unread` et `search`.
   @Get(':id')
   @ApiOperation({
     summary: "Lit un DM dont je suis l'expéditeur ou le destinataire",

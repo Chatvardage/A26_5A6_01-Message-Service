@@ -21,6 +21,7 @@ describe('MessagesService', () => {
   let redis: any;
   let limiteEnvoi: any;
   let destinataires: any;
+  let lecture: any;
   let service: MessagesService;
   beforeEach(() => {
     prisma = {
@@ -38,7 +39,14 @@ describe('MessagesService', () => {
     redis = { publish: jest.fn() };
     limiteEnvoi = { verifier: jest.fn() };
     destinataires = { exigerExistant: jest.fn().mockResolvedValue(undefined) };
-    service = new MessagesService(prisma, redis, limiteEnvoi, destinataires);
+    lecture = { compteursDm: jest.fn().mockResolvedValue(new Map()) };
+    service = new MessagesService(
+      prisma,
+      redis,
+      limiteEnvoi,
+      destinataires,
+      lecture,
+    );
   });
   it('creates then publishes', async () => {
     prisma.privateMessage.create.mockResolvedValue(msg);
@@ -244,10 +252,13 @@ describe('MessagesService', () => {
       withU3,
     ]);
 
+    lecture.compteursDm.mockResolvedValue(new Map([['u2', 4]]));
+
     await expect(service.listConversations('u1')).resolves.toEqual([
-      { otherUserId: 'u2', lastMessage: withU2 },
-      { otherUserId: 'u3', lastMessage: withU3 },
+      { otherUserId: 'u2', lastMessage: withU2, unreadCount: 4 },
+      { otherUserId: 'u3', lastMessage: withU3, unreadCount: 0 },
     ]);
+    expect(lecture.compteursDm).toHaveBeenCalledWith('u1');
   });
 
   it('findOne not found', async () => {

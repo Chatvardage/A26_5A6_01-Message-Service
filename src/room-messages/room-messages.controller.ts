@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,6 +20,11 @@ import {
 import { RoomMessage } from '@prisma/client';
 import { AdminGuard } from '../auth/admin.guard';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { MarquerLuDto } from '../lecture/dto/marquer-lu.dto';
+import {
+  EtatLecture,
+  EtatLectureService,
+} from '../lecture/etat-lecture.service';
 import { extraireJetonBearer } from '../partage/client-auth';
 import { CreateAdminRoomMessageDto } from './dto/create-admin-room-message.dto';
 import { CreateRoomMessageDto } from './dto/create-room-message.dto';
@@ -31,7 +37,10 @@ import { RoomMessagesService } from './room-messages.service';
 @Controller('messages/rooms')
 @UseGuards(JwtAuthGuard)
 export class RoomMessagesController {
-  constructor(private readonly roomMessages: RoomMessagesService) {}
+  constructor(
+    private readonly roomMessages: RoomMessagesService,
+    private readonly lecture: EtatLectureService,
+  ) {}
 
   @Post(':roomId')
   @ApiOperation({
@@ -64,6 +73,20 @@ export class RoomMessagesController {
       dto,
       extraireJetonBearer(req.headers.authorization),
     );
+  }
+
+  @Put(':roomId/read')
+  @ApiOperation({
+    summary: 'Marque un salon comme lu',
+    description:
+      "Lecture du salon requise. Jusqu'à `messageId`, ou jusqu'au dernier message ; l'état ne recule jamais.",
+  })
+  markRead(
+    @Req() req: AuthenticatedRequest,
+    @Param('roomId') roomId: string,
+    @Body() dto: MarquerLuDto,
+  ): Promise<EtatLecture> {
+    return this.lecture.marquerSalonLu(req.auth, roomId, dto.messageId);
   }
 
   // Avant ':roomId/:id' : Express essaie les routes dans l'ordre de

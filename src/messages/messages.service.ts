@@ -13,6 +13,7 @@ import { ConversationSummary } from './dto/conversation-summary.dto';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { DestinatairesService } from '../destinataires.service';
+import { EtatLectureService } from '../lecture/etat-lecture.service';
 import { AdminHistoryQueryDto, HistoryQueryDto } from './dto/history-query.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 
@@ -24,6 +25,7 @@ export class MessagesService {
     private readonly redis: RedisService,
     private readonly limiteEnvoi: LimiteEnvoiService,
     private readonly destinataires: DestinatairesService,
+    private readonly lecture: EtatLectureService,
   ) {}
 
   /** `jeton` : celui de l'expéditeur, pour vérifier que le destinataire
@@ -157,18 +159,22 @@ export class MessagesService {
 
     // 2) Uniquement ces derniers messages (plusieurs possibles à la même
     // milliseconde : départagés par id, comme dans history()).
-    const derniers = await this.prisma.privateMessage.findMany({
-      where: {
-        OR: [...derniereDate].map(([autreId, createdAt]) => ({
-          createdAt,
-          OR: [
-            { senderId: userId, recipientId: autreId },
-            { senderId: autreId, recipientId: userId },
-          ],
-        })),
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const [derniers, nonLus] = await Promise.all([
+      this.prisma.privateMessage.findMany({
+        where: {
+          OR: [...derniereDate].map(([autreId, createdAt]) => ({
+            createdAt,
+            OR: [
+              { senderId: userId, recipientId: autreId },
+              { senderId: autreId, recipientId: userId },
+            ],
+          })),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      // 3) Non-lus de chaque interlocuteur, en une requête.
+      this.lecture.compteursDm(userId),
+    ]);
 
     const seen = new Set<string>();
     const conversations: ConversationSummary[] = [];
@@ -180,7 +186,11 @@ export class MessagesService {
       if (seen.has(otherUserId)) continue;
       seen.add(otherUserId);
 
-      conversations.push({ otherUserId, lastMessage: message });
+      conversations.push({
+        otherUserId,
+        lastMessage: message,
+        unreadCount: nonLus.get(otherUserId) ?? 0,
+      });
     }
 
     return conversations;

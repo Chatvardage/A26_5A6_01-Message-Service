@@ -33,3 +33,24 @@ model RoomMessage {
 
   @@index([roomId, createdAt])
 }
+
+enum ConversationKind {
+  dm
+  room
+}
+
+// État de lecture d'une conversation par un utilisateur (messages non lus,
+// contrôle 3). `targetId` : l'interlocuteur pour un DM, le salon sinon.
+// PostgreSQL fait foi : l'état survit au redémarrage du service.
+model ConversationReadState {
+  userId     String
+  kind       ConversationKind
+  targetId   String
+  // Date du dernier message lu ; ne recule jamais.
+  lastReadAt DateTime
+  updatedAt  DateTime         @updatedAt
+
+  @@id([userId, kind, targetId])
+  // Effacement quand l'interlocuteur ou le salon disparaît.
+  @@index([kind, targetId])
+}

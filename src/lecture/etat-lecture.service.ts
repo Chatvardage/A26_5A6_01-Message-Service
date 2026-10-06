@@ -1,0 +1,252 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
+import { ConversationKind, Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma.service';
+import { Acteur, RoomsClientService } from '../rooms/rooms-client.service';
+
+/** Identifiant d'une conversation, le même que celui du client mobile :
+ * `dm:<interlocuteur>` ou `room:<salon>`. */
+export const idConversation = (kind: ConversationKind, targetId: string) =>
+  `${kind}:${targetId}`;
+
+export type EtatLecture = {
+  conversationId: string;
+  /** Date du dernier message lu ; `null` si rien n'a encore été lu. */
+  lastReadAt: Date | null;
+  unreadCount: number;
+};
+
+type Message = { id: string; createdAt: Date };
+
+/**
+ * Messages non lus et état de lecture (contrôle 3). PostgreSQL fait foi :
+ * l'état est une ligne `ConversationReadState` par utilisateur et
+ * conversation, qui survit au redémarrage du service.
+ *
+ * Un message est non lu s'il a été écrit par quelqu'un d'autre APRÈS
+ * `lastReadAt`. Sans état de lecture :
+ * - DM : tous les messages reçus sont non lus ;
+ * - salon : seulement ceux écrits depuis l'arrivée dans le serveur (date
+ *   fournie par Room-Service), pour qu'un nouvel arrivant ne voie pas tout
+ *   l'historique en non-lus ; aucun si cette date est inconnue (admin non
+ *   membre, serveur par défaut pas encore rejoint).
+ */
+@Injectable()
+export class EtatLectureService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rooms: RoomsClientService,
+  ) {}
+
+  /** Marque un DM comme lu jusqu'à `messageId`, ou jusqu'au dernier message. */
+  async marquerDmLu(
+    userId: string,
+    otherUserId: string,
+    messageId?: string,
+  ): Promise<EtatLecture> {
+    const conversation = {
+      OR: [
+        { senderId: userId, recipientId: otherUserId },
+        { senderId: otherUserId, recipientId: userId },
+      ],
+    };
+    const message = await this.prisma.privateMessage.findFirst({
+      where: messageId ? { id: messageId, ...conversation } : conversation,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, createdAt: true },
+    });
+    const lastReadAt = await this.avancer(
+      userId,
+      'dm',
+      otherUserId,
+      message,
+      messageId,
+    );
+    const compteurs = await this.compteursDm(userId, otherUserId);
+    return {
+      conversationId: idConversation('dm', otherUserId),
+      lastReadAt,
+      unreadCount: compteurs.get(otherUserId) ?? 0,
+    };
+  }
+
+  /** Marque un salon comme lu ; il faut pouvoir le lire (Room-Service). */
+  async marquerSalonLu(
+    acteur: Acteur,
+    roomId: string,
+    messageId?: string,
+  ): Promise<EtatLecture> {
+    const acces = await this.rooms.verifierAcces(roomId, acteur);
+    if (!acces.peutLire) {
+      throw new ForbiddenException(
+        'Vous devez être membre du salon pour consulter ce contenu',
+      );
+    }
+    const message = await this.prisma.roomMessage.findFirst({
+      where: messageId ? { id: messageId, roomId } : { roomId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, createdAt: true },
+    });
+    const lastReadAt = await this.avancer(
+      acteur.id,
+      'room',
+      roomId,
+      message,
+      messageId,
+    );
+    const salon = (await this.rooms.salonsLisibles(acteur)).find(
+      (s) => s.salonId === roomId,
+    );
+    const compteurs = await this.compterSalons(acteur.id, [
+      { salonId: roomId, depuis: salon?.depuis ?? null },
+    ]);
+    return {
+      conversationId: idConversation('room', roomId),
+      lastReadAt,
+      unreadCount: compteurs.get(roomId) ?? 0,
+    };
+  }
+
+  /** Non-lus de toutes les conversations (DM et salons lisibles), clés
+   * `dm:<id>` / `room:<id>` ; seules les valeurs non nulles sont présentes. */
+  async compteurs(acteur: Acteur): Promise<Record<string, number>> {
+    const [dm, salons] = await Promise.all([
+      this.compteursDm(acteur.id),
+      this.rooms
+        .salonsLisibles(acteur)
+        .then((lisibles) => this.compterSalons(acteur.id, lisibles)),
+    ]);
+    const resultat: Record<string, number> = {};
+    for (const [id, n] of dm) resultat[idConversation('dm', id)] = n;
+    for (const [id, n] of salons) resultat[idConversation('room', id)] = n;
+    return resultat;
+  }
+
+  /** Non-lus par interlocuteur (tous, ou seulement `seulement`). Une seule
+   * requête groupée, quel que soit le nombre de conversations. */
+  async compteursDm(
+    userId: string,
+    seulement?: string,
+  ): Promise<Map<string, number>> {
+    const etats = await this.prisma.conversationReadState.findMany({
+      where: {
+        userId,
+        kind: 'dm',
+        ...(seulement ? { targetId: seulement } : {}),
+      },
+      select: { targetId: true, lastReadAt: true },
+    });
+    const lignes = await this.prisma.privateMessage.groupBy({
+      by: ['senderId'],
+      where: {
+        recipientId: userId,
+        ...(seulement ? { senderId: seulement } : {}),
+        OR: [
+          // Conversations lues : seulement les messages plus récents.
+          ...etats.map((e) => ({
+            senderId: e.targetId,
+            createdAt: { gt: e.lastReadAt },
+          })),
+          // Jamais lues : tous les messages reçus.
+          { senderId: { notIn: etats.map((e) => e.targetId) } },
+        ],
+      },
+      _count: { _all: true },
+    });
+    return new Map(lignes.map((l) => [l.senderId, l._count._all]));
+  }
+
+  /** Compte supprimé (route interne) : ses états, et ceux des autres sur
+   * leurs conversations privées avec lui (effacées elles aussi). */
+  async supprimerUtilisateur(userId: string): Promise<void> {
+    await this.prisma.conversationReadState.deleteMany({
+      where: { OR: [{ userId }, { kind: 'dm', targetId: userId }] },
+    });
+  }
+
+  /** Salons supprimés dans Room-Service (route interne). */
+  async purgerSalons(salonIds: string[]): Promise<void> {
+    await this.prisma.conversationReadState.deleteMany({
+      where: { kind: 'room', targetId: { in: salonIds } },
+    });
+  }
+
+  private async compterSalons(
+    userId: string,
+    salons: { salonId: string; depuis: Date | null }[],
+  ): Promise<Map<string, number>> {
+    if (salons.length === 0) return new Map();
+    const etats = await this.prisma.conversationReadState.findMany({
+      where: {
+        userId,
+        kind: 'room',
+        targetId: { in: salons.map((s) => s.salonId) },
+      },
+      select: { targetId: true, lastReadAt: true },
+    });
+    const lus = new Map(etats.map((e) => [e.targetId, e.lastReadAt]));
+
+    // Seuil par salon : le plus récent entre la lecture et l'arrivée.
+    const conditions: Prisma.RoomMessageWhereInput[] = [];
+    for (const { salonId, depuis } of salons) {
+      const lu = lus.get(salonId);
+      const seuil = lu && depuis ? (lu > depuis ? lu : depuis) : (lu ?? depuis);
+      if (seuil) conditions.push({ roomId: salonId, createdAt: { gt: seuil } });
+    }
+    if (conditions.length === 0) return new Map();
+
+    const lignes = await this.prisma.roomMessage.groupBy({
+      by: ['roomId'],
+      where: { authorId: { not: userId }, OR: conditions },
+      _count: { _all: true },
+    });
+    return new Map(lignes.map((l) => [l.roomId, l._count._all]));
+  }
+
+  /**
+   * Avance l'état jusqu'à `message` sans jamais le faire reculer (deux
+   * appareils peuvent marquer comme lu dans le désordre). Renvoie la date
+   * enregistrée, ou `null` si la conversation n'a jamais été lue.
+   */
+  private async avancer(
+    userId: string,
+    kind: ConversationKind,
+    targetId: string,
+    message: Message | null,
+    messageId: string | undefined,
+  ): Promise<Date | null> {
+    const clef = { userId_kind_targetId: { userId, kind, targetId } };
+    if (!message) {
+      if (messageId) {
+        throw new BadRequestException(
+          'Message introuvable dans cette conversation',
+        );
+      }
+      // Conversation vide : rien à marquer.
+      const etat = await this.prisma.conversationReadState.findUnique({
+        where: clef,
+        select: { lastReadAt: true },
+      });
+      return etat?.lastReadAt ?? null;
+    }
+
+    // Création sans conflit (ON CONFLICT DO NOTHING), puis avance
+    // conditionnelle : atomique même avec des appels simultanés.
+    await this.prisma.conversationReadState.createMany({
+      data: [{ userId, kind, targetId, lastReadAt: message.createdAt }],
+      skipDuplicates: true,
+    });
+    await this.prisma.conversationReadState.updateMany({
+      where: { userId, kind, targetId, lastReadAt: { lt: message.createdAt } },
+      data: { lastReadAt: message.createdAt },
+    });
+    const etat = await this.prisma.conversationReadState.findUniqueOrThrow({
+      where: clef,
+      select: { lastReadAt: true },
+    });
+    return etat.lastReadAt;
+  }
+}

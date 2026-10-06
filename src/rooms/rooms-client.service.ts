@@ -92,21 +92,31 @@ export type AccesSalon = {
   peutModerer: boolean;
 };
 
+/** Salon lisible par un utilisateur, avec son arrivée dans le serveur
+ * (`null` : pas de ligne de membre, voir Room-Service). */
+export type SalonLisible = {
+  salonId: string;
+  serveurId: string;
+  depuis: Date | null;
+};
+
 export type Acteur = Pick<AuthenticatedUser, 'id' | 'role'>;
 
 /**
- * Client de la route interne de Room-Service
- * (`GET /api/internal/channels/:id/access/:userId`), protégée par le secret
+ * Client des routes internes de Room-Service
+ * (`GET /api/internal/channels/:id/access/:userId` et
+ * `GET /api/internal/users/:userId/channels`), protégées par le secret
  * partagé INTERNAL_SERVICE_TOKEN. Room-Service est la seule source de vérité
  * des permissions (salons réservés aux modérateurs, écriture réservée de
  * #annonces…) : ce service ne recode aucune règle.
  *
  * Cache : chaque envoi ou lecture de message de salon demande l'accès ; un
  * accès obtenu est donc mémorisé `ROOM_ACCESS_CACHE_TTL_MS` (10 s par
- * défaut). Room-Service prévient de chaque changement d'un serveur (voir
- * MessagesGateway.broadcastServeurEvent), qui oublie alors tous les accès à
- * ce serveur (`oublierServeur`) : une expulsion ou un salon rendu réservé
- * est pris en compte aussitôt. Les erreurs ne sont jamais mémorisées.
+ * défaut), tout comme la liste des salons lisibles. Room-Service prévient de
+ * chaque changement d'un serveur (voir MessagesGateway.broadcastServeurEvent),
+ * qui oublie alors tous les accès à ce serveur et toutes les listes
+ * (`oublierServeur`) : une expulsion ou un salon rendu réservé est pris en
+ * compte aussitôt. Les erreurs ne sont jamais mémorisées.
  */
 @Injectable()
 export class RoomsClientService {
@@ -115,6 +125,10 @@ export class RoomsClientService {
   private readonly cache = new Map<
     string,
     { acces: AccesSalon; expireA: number }
+  >();
+  private readonly cacheListes = new Map<
+    string,
+    { salons: SalonLisible[]; expireA: number }
   >();
 
   async verifierAcces(roomId: string, acteur: Acteur): Promise<AccesSalon> {
@@ -125,68 +139,66 @@ export class RoomsClientService {
       this.cache.delete(clef);
     }
     const acces = await this.demanderAcces(roomId, acteur);
-    if (this.config.dureeCacheMs > 0) {
-      if (this.cache.size >= TAILLE_MAX_CACHE_ACCES) {
-        this.cache.delete(this.cache.keys().next().value as string);
-      }
-      this.cache.set(clef, {
-        acces,
-        expireA: Date.now() + this.config.dureeCacheMs,
-      });
-    }
+    this.memoriser(this.cache, clef, { acces });
     return acces;
   }
 
-  /** Oublie les accès mémorisés aux salons d'un serveur qui a changé. */
+  /** Salons que l'utilisateur peut lire (recherche, messages non lus). */
+  async salonsLisibles(acteur: Acteur): Promise<SalonLisible[]> {
+    const clef = `${acteur.id}|${acteur.role}`;
+    const entree = this.cacheListes.get(clef);
+    if (entree) {
+      if (entree.expireA > Date.now()) return entree.salons;
+      this.cacheListes.delete(clef);
+    }
+    const corps = await this.lireJson(
+      `/api/internal/users/${encodeURIComponent(acteur.id)}` +
+        `/channels?role=${encodeURIComponent(acteur.role)}`,
+      null,
+    );
+    const salons = lireSalonsLisibles(corps);
+    this.memoriser(this.cacheListes, clef, { salons });
+    return salons;
+  }
+
+  /** Oublie les accès mémorisés aux salons d'un serveur qui a changé, et
+   * toutes les listes : un salon créé ou un serveur rejoint les modifie
+   * sans qu'elles mentionnent encore ce serveur. */
   oublierServeur(serveurId: string): void {
     for (const [clef, { acces }] of this.cache) {
       if (acces.serveurId === serveurId) this.cache.delete(clef);
     }
+    this.cacheListes.clear();
+  }
+
+  private memoriser<T>(
+    cache: Map<string, T & { expireA: number }>,
+    clef: string,
+    valeur: T,
+  ): void {
+    if (this.config.dureeCacheMs <= 0) return;
+    if (cache.size >= TAILLE_MAX_CACHE_ACCES) {
+      cache.delete(cache.keys().next().value as string);
+    }
+    cache.set(clef, {
+      ...valeur,
+      expireA: Date.now() + this.config.dureeCacheMs,
+    });
   }
 
   private async demanderAcces(
     roomId: string,
     acteur: Acteur,
   ): Promise<AccesSalon> {
-    const jeton = this.config.jetonInterne;
-    if (!jeton) {
-      throw new ServiceUnavailableException(
-        'INTERNAL_SERVICE_TOKEN non configuré',
-      );
-    }
-
-    let response: Response;
-
-    try {
-      response = await fetch(
-        `${this.config.urlService}/api/internal/channels/${encodeURIComponent(roomId)}` +
-          `/access/${encodeURIComponent(acteur.id)}?role=${encodeURIComponent(acteur.role)}`,
-        {
-          headers: { 'x-internal-token': jeton },
-          signal: AbortSignal.timeout(this.config.delaiMs),
-        },
-      );
-    } catch {
-      throw new ServiceUnavailableException('Service des salons indisponible');
-    }
-
-    if (response.status === 404) {
-      throw new NotFoundException('Salon introuvable');
-    }
-
-    if (!response.ok) {
-      throw new ServiceUnavailableException('Validation du salon impossible');
-    }
-
-    let acces: Partial<AccesSalon>;
-
-    try {
-      acces = (await response.json()) as Partial<AccesSalon>;
-    } catch {
-      throw new BadGatewayException('Réponse invalide du service des salons');
-    }
+    const acces = (await this.lireJson(
+      `/api/internal/channels/${encodeURIComponent(roomId)}` +
+        `/access/${encodeURIComponent(acteur.id)}?role=${encodeURIComponent(acteur.role)}`,
+      'Salon introuvable',
+    )) as Partial<AccesSalon> | null;
 
     if (
+      typeof acces !== 'object' ||
+      acces === null ||
       typeof acces.salonId !== 'string' ||
       typeof acces.serveurId !== 'string' ||
       typeof acces.estMembre !== 'boolean' ||
@@ -207,4 +219,64 @@ export class RoomsClientService {
       peutModerer: acces.peutModerer ?? false,
     };
   }
+
+  /** Appelle une route interne et renvoie son corps JSON. `introuvable` :
+   * message du 404 renvoyé au client, ou `null` si un 404 est une panne. */
+  private async lireJson(
+    chemin: string,
+    introuvable: string | null,
+  ): Promise<unknown> {
+    const jeton = this.config.jetonInterne;
+    if (!jeton) {
+      throw new ServiceUnavailableException(
+        'INTERNAL_SERVICE_TOKEN non configuré',
+      );
+    }
+
+    let response: Response;
+
+    try {
+      response = await fetch(`${this.config.urlService}${chemin}`, {
+        headers: { 'x-internal-token': jeton },
+        signal: AbortSignal.timeout(this.config.delaiMs),
+      });
+    } catch {
+      throw new ServiceUnavailableException('Service des salons indisponible');
+    }
+
+    if (response.status === 404 && introuvable !== null) {
+      throw new NotFoundException(introuvable);
+    }
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException('Validation du salon impossible');
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      throw new BadGatewayException('Réponse invalide du service des salons');
+    }
+  }
+}
+
+/** Valide `{ salons: [{ salonId, serveurId, depuis }] }` (502 sinon). */
+function lireSalonsLisibles(corps: unknown): SalonLisible[] {
+  const invalide = () =>
+    new BadGatewayException('Réponse invalide du service des salons');
+  const salons = (corps as { salons?: unknown } | null)?.salons;
+  if (!Array.isArray(salons)) throw invalide();
+  return salons.map((brut: unknown) => {
+    const salon = brut as Partial<Record<keyof SalonLisible, unknown>> | null;
+    if (
+      typeof salon?.salonId !== 'string' ||
+      typeof salon.serveurId !== 'string' ||
+      (salon.depuis !== null && typeof salon.depuis !== 'string')
+    ) {
+      throw invalide();
+    }
+    const depuis = salon.depuis === null ? null : new Date(salon.depuis);
+    if (depuis !== null && Number.isNaN(depuis.getTime())) throw invalide();
+    return { salonId: salon.salonId, serveurId: salon.serveurId, depuis };
+  });
 }
