@@ -414,4 +414,50 @@ describe('RoomMessagesService', () => {
       expect(prisma.roomMessage.findUnique).not.toHaveBeenCalled();
     },
   );
+
+  it('ouvre une page au message cible inclus avec un seul acces pagine', async () => {
+    prisma.roomMessage.findFirst.mockResolvedValue({ id: 'm1' });
+    prisma.roomMessage.findMany.mockResolvedValue([msg]);
+    const query = { around: 'm1', limit: 50 };
+    expect(await service.history(acteur('u1'), 'r1', query)).toEqual([msg]);
+    expect(prisma.roomMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: { id: 'm1' }, skip: 0, take: 50 }),
+    );
+  });
+  it('pagine vers les messages plus recents dans un ordre stable', async () => {
+    prisma.roomMessage.findFirst.mockResolvedValue({ id: 'm1' });
+    prisma.roomMessage.findMany.mockResolvedValue([msg, { ...msg, id: 'm2' }]);
+    const query = { cursor: 'm1', direction: 'after' as const, limit: 50 };
+    expect(
+      (await service.history(acteur('u1'), 'r1', query)).map((m) => m.id),
+    ).toEqual(['m1', 'm2']);
+    expect(prisma.roomMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 1,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+  });
+  it.each([
+    { around: 'm1', cursor: 'm2', limit: 50 },
+    { direction: 'after' as const, limit: 50 },
+    { around: 'm1', direction: 'after' as const, limit: 50 },
+    { around: 'm1', cursor: 'm2', direction: 'after' as const, limit: 50 },
+  ])(
+    'refuse une pagination incompatible sans lire les messages',
+    async (query) => {
+      await expect(
+        service.history(acteur('u1'), 'r1', query),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.roomMessage.findMany).not.toHaveBeenCalled();
+    },
+  );
+  it('refuse une cible absente ou appartenant a une autre conversation', async () => {
+    prisma.roomMessage.findFirst.mockResolvedValue(null);
+    const query = { around: 'foreign', limit: 50 };
+    await expect(
+      service.history(acteur('u1'), 'r1', query),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.roomMessage.findMany).not.toHaveBeenCalled();
+  });
 });

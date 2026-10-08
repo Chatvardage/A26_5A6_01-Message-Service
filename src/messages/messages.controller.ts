@@ -50,6 +50,17 @@ export class MessagesController {
     private readonly recherche: RechercheService,
   ) {}
 
+  @Put(':id/delivered')
+  @ApiOperation({
+    summary: 'Confirme la reception du DM dans une application du destinataire',
+  })
+  markDelivered(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<PrivateMessage> {
+    return this.messages.markDelivered(req.auth.id, id);
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Envoie un DM',

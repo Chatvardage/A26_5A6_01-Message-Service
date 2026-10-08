@@ -85,15 +85,40 @@ export class MessagesService {
     return message;
   }
 
+  /** Seul le destinataire peut confirmer la reception effective dans son application. */
+  async markDelivered(userId: string, id: string): Promise<PrivateMessage> {
+    const message = await this.prisma.privateMessage.findUnique({
+      where: { id },
+    });
+    if (!message) throw new NotFoundException('Message introuvable');
+    if (message.recipientId !== userId)
+      throw new ForbiddenException('Destinataire requis');
+    if (message.deliveredAt) return message;
+    // updatedAt decrit une modification du texte, pas une confirmation de livraison.
+    const delivered = await this.prisma.privateMessage.update({
+      where: { id },
+      data: { deliveredAt: new Date(), updatedAt: message.updatedAt },
+    });
+    await this.redis.publish('private-message.delivered', delivered);
+    return delivered;
+  }
+
   async history(
     userId: string,
     otherUserId: string,
     query: HistoryQueryDto,
   ): Promise<PrivateMessage[]> {
-    if (query.cursor) {
+    if (
+      (query.around && query.cursor) ||
+      (query.direction === 'after' && (!query.cursor || query.around))
+    ) {
+      throw new BadRequestException('Pagination incompatible');
+    }
+    const anchor = query.around ?? query.cursor;
+    if (anchor) {
       const cursorMessage = await this.prisma.privateMessage.findFirst({
         where: {
-          id: query.cursor,
+          id: anchor,
           OR: [
             { senderId: userId, recipientId: otherUserId },
             { senderId: otherUserId, recipientId: userId },
@@ -116,16 +141,19 @@ export class MessagesService {
           { senderId: otherUserId, recipientId: userId },
         ],
       },
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      ...(anchor ? { cursor: { id: anchor }, skip: query.around ? 0 : 1 } : {}),
       take: query.limit,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [
+        { createdAt: query.direction === 'after' ? 'asc' : 'desc' },
+        { id: query.direction === 'after' ? 'asc' : 'desc' },
+      ],
     });
 
     // La requête récupère d'abord les messages les plus récents afin que
     // `take` sélectionne la bonne page, puis l'API les renvoie dans l'ordre
     // chronologique attendu par l'interface de clavardage. L'UUID sert ici
     // uniquement de bris d'égalité stable lorsque createdAt est identique.
-    return messages.reverse();
+    return query.direction === 'after' ? messages : messages.reverse();
   }
 
   async listConversations(userId: string): Promise<ConversationSummary[]> {

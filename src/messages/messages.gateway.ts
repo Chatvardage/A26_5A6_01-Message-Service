@@ -112,6 +112,7 @@ const PRIVATE_MESSAGE_CHANNELS = [
   'private-message.created',
   'private-message.updated',
   'private-message.deleted',
+  'private-message.delivered',
 ];
 
 // Présence en temps réel : diffusée à tous les clients connectés (la

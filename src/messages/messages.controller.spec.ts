@@ -16,8 +16,14 @@ describe('MessagesController', () => {
     headers: { authorization: 'Bearer jwt-admin' },
   };
 
+  it('la confirmation utilise lidentite authentifiee', async () => {
+    service.markDelivered.mockResolvedValue('receipt');
+    await expect(controller.markDelivered(req, 'm1')).resolves.toBe('receipt');
+    expect(service.markDelivered).toHaveBeenCalledWith('u1', 'm1');
+  });
   beforeEach(() => {
     service = {
+      markDelivered: jest.fn(),
       create: jest.fn(),
       createForAdmin: jest.fn(),
       history: jest.fn(),

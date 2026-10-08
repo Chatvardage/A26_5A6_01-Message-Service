@@ -110,6 +110,7 @@ describe('MessagesGateway', () => {
         'private-message.created',
         'private-message.updated',
         'private-message.deleted',
+        'private-message.delivered',
         'room-message.created',
         'room-message.updated',
         'room-message.deleted',
