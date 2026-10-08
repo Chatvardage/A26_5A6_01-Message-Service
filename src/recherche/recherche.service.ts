@@ -32,6 +32,9 @@ export type ResumeRecherche = {
 type Position = { createdAt: Date; id: string };
 
 /** `%`, `_` et `\` pris littéralement dans le motif LIKE de Prisma. */
+/** Message de bienvenue de #annonces (migration 20260924110000_message_bienvenue). */
+export const MESSAGE_BIENVENUE_ID = '00000000-0000-4000-8000-000000000101';
+
 export const echapperMotif = (texte: string) =>
   texte.replace(/[\\%_]/g, (c) => `\\${c}`);
 
@@ -101,6 +104,7 @@ export class RechercheService {
             where: {
               roomId: { in: lisibles.map((s) => s.salonId) },
               content: contenu,
+              ...this.sansBienvenueTraduite(),
             },
             _count: { _all: true },
           }),
@@ -182,7 +186,12 @@ export class RechercheService {
       salonIds.length === 0
         ? Promise.resolve([])
         : this.prisma.roomMessage.findMany({
-            where: { roomId: { in: salonIds }, content: contenu, ...avant },
+            where: {
+              roomId: { in: salonIds },
+              content: contenu,
+              ...avant,
+              ...this.sansBienvenueTraduite(),
+            },
             orderBy: ordre,
             take,
           }),
@@ -213,6 +222,23 @@ export class RechercheService {
         fusion.length > query.limit
           ? encoderCurseur(results[results.length - 1].message)
           : null,
+    };
+  }
+
+  /**
+   * Tant qu'il n'est pas modifié, le message de bienvenue est affiché dans
+   * la langue de l'app (Frontend et Mobile le remplacent par leur
+   * traduction) : son contenu en base ne correspond pas au texte lu, et
+   * « alo » le trouvait par « Salons » sans rien à surligner. Exclu des
+   * résultats et des totaux ; une version modifiée (updatedAt ≠ createdAt)
+   * est affichée telle quelle et reste cherchable.
+   */
+  private sansBienvenueTraduite(): Prisma.RoomMessageWhereInput {
+    return {
+      NOT: {
+        id: MESSAGE_BIENVENUE_ID,
+        updatedAt: { equals: this.prisma.roomMessage.fields.createdAt },
+      },
     };
   }
 

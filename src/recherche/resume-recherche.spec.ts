@@ -1,13 +1,16 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ResumeRechercheQueryDto } from './dto/resume-recherche-query.dto';
-import { RechercheService } from './recherche.service';
+import { MESSAGE_BIENVENUE_ID, RechercheService } from './recherche.service';
 
 describe('résumé de recherche', () => {
   const acteur = { id: 'moi', role: 'utilisateur' as const };
   const prisma = {
     privateMessage: { groupBy: jest.fn() },
-    roomMessage: { groupBy: jest.fn() },
+    roomMessage: {
+      groupBy: jest.fn(),
+      fields: { createdAt: 'champ createdAt' },
+    },
   };
   const rooms = { salonsLisibles: jest.fn() };
   const service = new RechercheService(prisma as never, rooms as never);
@@ -69,7 +72,14 @@ describe('résumé de recherche', () => {
     });
     expect(prisma.roomMessage.groupBy).toHaveBeenCalledWith({
       by: ['roomId'],
-      where: { roomId: { in: ['a', 'b', 'c', 'd'] }, content },
+      where: {
+        roomId: { in: ['a', 'b', 'c', 'd'] },
+        content,
+        NOT: {
+          id: MESSAGE_BIENVENUE_ID,
+          updatedAt: { equals: 'champ createdAt' },
+        },
+      },
       _count: { _all: true },
     });
   });

@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { RechercheQueryDto } from './dto/recherche-query.dto';
 import {
+  MESSAGE_BIENVENUE_ID,
   RechercheService,
   decoderCurseur,
   echapperMotif,
@@ -35,7 +36,10 @@ describe('RechercheService', () => {
   beforeEach(() => {
     prisma = {
       privateMessage: { findMany: jest.fn().mockResolvedValue([]) },
-      roomMessage: { findMany: jest.fn().mockResolvedValue([]) },
+      roomMessage: {
+        findMany: jest.fn().mockResolvedValue([]),
+        fields: { createdAt: 'champ createdAt' },
+      },
     };
     rooms = {
       verifierAcces: jest.fn().mockResolvedValue({ peutLire: true }),
@@ -61,7 +65,14 @@ describe('RechercheService', () => {
       take: 21,
     });
     expect(prisma.roomMessage.findMany).toHaveBeenCalledWith({
-      where: { roomId: { in: ['r1'] }, content: contenu },
+      where: {
+        roomId: { in: ['r1'] },
+        content: contenu,
+        NOT: {
+          id: MESSAGE_BIENVENUE_ID,
+          updatedAt: { equals: 'champ createdAt' },
+        },
+      },
       orderBy: ordre,
       take: 21,
     });
