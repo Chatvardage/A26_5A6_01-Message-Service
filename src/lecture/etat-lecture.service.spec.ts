@@ -169,6 +169,32 @@ describe('EtatLectureService', () => {
     });
   });
 
+  describe('activiteSalons', () => {
+    it('donne la date du dernier message de chaque salon lisible', async () => {
+      rooms.salonsLisibles.mockResolvedValue([
+        { salonId: 'r1', serveurId: 's', depuis: null },
+        { salonId: 'r2', serveurId: 's', depuis: null },
+      ]);
+      prisma.roomMessage.groupBy.mockResolvedValue([
+        { roomId: 'r1', _max: { createdAt: new Date('2026-10-08T10:00:00Z') } },
+        { roomId: 'r2', _max: { createdAt: null } },
+      ]);
+      await expect(service.activiteSalons(moi)).resolves.toEqual({
+        'room:r1': '2026-10-08T10:00:00.000Z',
+      });
+      expect(prisma.roomMessage.groupBy).toHaveBeenCalledWith({
+        by: ['roomId'],
+        where: { roomId: { in: ['r1', 'r2'] } },
+        _max: { createdAt: true },
+      });
+    });
+
+    it('sans salon lisible, ne consulte pas les messages', async () => {
+      await expect(service.activiteSalons(moi)).resolves.toEqual({});
+      expect(prisma.roomMessage.groupBy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('marquerDmLu', () => {
     const conversation = {
       OR: [

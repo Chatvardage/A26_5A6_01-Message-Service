@@ -38,6 +38,9 @@ describe('MessagesController', () => {
       lecteurDm: jest.fn().mockResolvedValue('lecteur'),
       marquerDmLu: jest.fn().mockResolvedValue('etat'),
       compteurs: jest.fn().mockResolvedValue({ 'dm:u2': 1 }),
+      activiteSalons: jest
+        .fn()
+        .mockResolvedValue({ 'room:r1': '2026-10-08T10:00:00.000Z' }),
     };
     recherche = {
       rechercher: jest.fn().mockResolvedValue('page'),
@@ -135,6 +138,11 @@ describe('MessagesController', () => {
       counts: { 'dm:u2': 1 },
     });
     expect(lecture.compteurs).toHaveBeenCalledWith(req.auth);
+
+    await expect(controller.activity(req)).resolves.toEqual({
+      rooms: { 'room:r1': '2026-10-08T10:00:00.000Z' },
+    });
+    expect(lecture.activiteSalons).toHaveBeenCalledWith(req.auth);
 
     const query = { q: 'salut', limit: 20 };
     await expect(controller.search(req, query)).resolves.toBe('page');

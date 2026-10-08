@@ -187,6 +187,18 @@ export class MessagesController {
     return { counts: await this.lecture.compteurs(req.auth) };
   }
 
+  @Get('activity')
+  @ApiOperation({
+    summary: 'Dernière activité de mes salons',
+    description:
+      '`{ rooms: { "room:<id>": "<date du dernier message>" } }`, salons lisibles seulement ; les salons sans message sont absents. Sert à trier les serveurs par activité.',
+  })
+  async activity(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ rooms: Record<string, string> }> {
+    return { rooms: await this.lecture.activiteSalons(req.auth) };
+  }
+
   @Get('search/summary')
   @ApiOperation({
     summary: 'Compter les correspondances par interlocuteur, serveur et salon',
