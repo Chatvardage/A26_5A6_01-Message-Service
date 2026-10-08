@@ -39,8 +39,18 @@ describe('MessagesController', () => {
       marquerDmLu: jest.fn().mockResolvedValue('etat'),
       compteurs: jest.fn().mockResolvedValue({ 'dm:u2': 1 }),
     };
-    recherche = { rechercher: jest.fn().mockResolvedValue('page') };
+    recherche = {
+      rechercher: jest.fn().mockResolvedValue('page'),
+      resumer: jest.fn().mockResolvedValue('résumé'),
+    };
     controller = new MessagesController(service, lecture, recherche);
+  });
+
+  it('le résumé utilise uniquement l’identité authentifiée et le texte validé', async () => {
+    await expect(controller.searchSummary(req, { q: 'bonjour' })).resolves.toBe(
+      'résumé',
+    );
+    expect(recherche.resumer).toHaveBeenCalledWith(req.auth, 'bonjour');
   });
 
   it('delegates authenticated CRUD operations', async () => {

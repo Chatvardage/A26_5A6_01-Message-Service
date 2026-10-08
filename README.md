@@ -2,6 +2,10 @@
 
 Microservice NestJS/Prisma : messages privés et de salon, historique, messages non lus, recherche, Redis Pub/Sub et Socket.IO. Il écrit dans PostgreSQL avant de publier chaque création, modification ou suppression individuelle.
 
+### Résumé de recherche
+
+`GET /api/messages/search/summary?q=<texte>` renvoie les comptes complets par interlocuteur et par serveur, avec les comptes de ses salons lisibles. Le texte a les mêmes contraintes que la recherche paginée (2–100 caractères, casse ignorée, jokers littéraux). Les groupes sans résultat sont absents; les DM entrants et sortants sont additionnés par interlocuteur. Les agrégations ne chargent aucun contenu de message et utilisent uniquement les droits Room-Service de l'acteur authentifié. La réponse contient `directMessages: [{ conversationId, count }]` et `servers: [{ serverId, count, channels: [{ conversationId, count }] }]`, triés par compte décroissant puis identifiant. La route est additive; reconstruire le service avant d'utiliser la nouvelle recherche mobile. Référence : [résumé de recherche dans Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/api/recherche-resume.md).
+
 ## Lancer le service complet
 
 Le [README Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/README.md) est le point de départ : clonage des huit dépôts, secrets, Docker Compose, administration et client desktop.

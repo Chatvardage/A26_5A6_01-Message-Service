@@ -110,6 +110,34 @@ describe('non-lus, état de lecture et recherche (PostgreSQL réel)', () => {
     await prisma.$disconnect();
   });
 
+  it('compte toutes les correspondances par personne et salon, avec les droits et les jokers littéraux', async () => {
+    await dm(MOI, ALICE, 1, 'budget 50%_');
+    await dm(ALICE, MOI, 2, 'BUDGET 50%_');
+    await dm(BOB, MOI, 3, 'budget 50%_');
+    await dm(ALICE, BOB, 4, 'budget 50%_');
+    await dm(MOI, ALICE, 5, 'budget 5000');
+    await salon(SALON, ALICE, 6, 'budget 50%_');
+    await salon(SALON_INTERDIT, ALICE, 7, 'budget 50%_');
+    const { recherche } = services(prisma);
+    expect(await recherche.resumer(moi, '50%_')).toEqual({
+      directMessages: [
+        { conversationId: `dm:${ALICE}`, count: 2 },
+        { conversationId: `dm:${BOB}`, count: 1 },
+      ],
+      servers: [
+        {
+          serverId: 'srv',
+          count: 1,
+          channels: [{ conversationId: `room:${SALON}`, count: 1 }],
+        },
+      ],
+    });
+    expect(await recherche.resumer(moi, 'absent')).toEqual({
+      directMessages: [],
+      servers: [],
+    });
+  });
+
   it('distingue les messages à date égale en DM et salon, sans recul', async () => {
     const ids = [
       '00000000-0000-4000-8000-000000000001',

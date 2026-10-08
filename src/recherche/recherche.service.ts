@@ -19,6 +19,16 @@ export type PageRecherche = {
   nextCursor: string | null;
 };
 
+export type CompteConversation = { conversationId: string; count: number };
+export type ResumeRecherche = {
+  directMessages: CompteConversation[];
+  servers: {
+    serverId: string;
+    count: number;
+    channels: CompteConversation[];
+  }[];
+};
+
 type Position = { createdAt: Date; id: string };
 
 /** `%`, `_` et `\` pris littéralement dans le motif LIKE de Prisma. */
@@ -67,6 +77,72 @@ export class RechercheService {
     private readonly prisma: PrismaService,
     private readonly rooms: RoomsClientService,
   ) {}
+
+  /** Agrégats complets, sans charger les messages ni exposer de salon illisible. */
+  async resumer(acteur: Acteur, texte: string): Promise<ResumeRecherche> {
+    const lisibles = await this.rooms.salonsLisibles(acteur);
+    const contenu = {
+      contains: echapperMotif(texte),
+      mode: 'insensitive' as const,
+    };
+    const [dms, salons] = await Promise.all([
+      this.prisma.privateMessage.groupBy({
+        by: ['senderId', 'recipientId'],
+        where: {
+          OR: [{ senderId: acteur.id }, { recipientId: acteur.id }],
+          content: contenu,
+        },
+        _count: { _all: true },
+      }),
+      lisibles.length === 0
+        ? Promise.resolve([])
+        : this.prisma.roomMessage.groupBy({
+            by: ['roomId'],
+            where: {
+              roomId: { in: lisibles.map((s) => s.salonId) },
+              content: contenu,
+            },
+            _count: { _all: true },
+          }),
+    ]);
+    const personnes = new Map<string, number>();
+    for (const dm of dms) {
+      const id = idConversation(
+        'dm',
+        dm.senderId === acteur.id ? dm.recipientId : dm.senderId,
+      );
+      personnes.set(id, (personnes.get(id) ?? 0) + dm._count._all);
+    }
+    const serveurs = new Map<string, ResumeRecherche['servers'][number]>();
+    const serveurParSalon = new Map(
+      lisibles.map((s) => [s.salonId, s.serveurId]),
+    );
+    for (const salon of salons) {
+      const serverId = serveurParSalon.get(salon.roomId)!;
+      let serveur = serveurs.get(serverId);
+      if (!serveur) {
+        serveur = { serverId, count: 0, channels: [] };
+        serveurs.set(serverId, serveur);
+      }
+      serveur.count += salon._count._all;
+      serveur.channels.push({
+        conversationId: idConversation('room', salon.roomId),
+        count: salon._count._all,
+      });
+    }
+    const trier = (a: CompteConversation, b: CompteConversation) =>
+      b.count - a.count || a.conversationId.localeCompare(b.conversationId);
+    return {
+      directMessages: [...personnes]
+        .map(([conversationId, count]) => ({ conversationId, count }))
+        .sort(trier),
+      servers: [...serveurs.values()]
+        .map((s) => ({ ...s, channels: s.channels.sort(trier) }))
+        .sort(
+          (a, b) => b.count - a.count || a.serverId.localeCompare(b.serverId),
+        ),
+    };
+  }
 
   async rechercher(
     acteur: Acteur,
