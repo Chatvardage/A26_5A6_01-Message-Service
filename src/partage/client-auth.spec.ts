@@ -182,6 +182,27 @@ describe('ClientAuth', () => {
     expect(auth.tailleCache).toBe(0);
   });
 
+  it('ne réutilise pas une réponse en cours antérieure à la révocation', async () => {
+    const auth = client();
+    let terminer!: (reponse: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        terminer = resolve;
+      }),
+    );
+    const ancienne = auth.verifierJeton('jwt');
+    fetchMock.mockResolvedValueOnce(reponse(401));
+    await expect(auth.verifierJetonSansCache('jwt')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    terminer(reponse(200, UTILISATEUR));
+    await ancienne;
+    expect(auth.tailleCache).toBe(0);
+    await auth.verifierJeton('jwt');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('ne mémorise rien avec une durée de cache nulle', async () => {
     const auth = client({ dureeCacheMs: 0 });
     await auth.verifierJeton('jwt');

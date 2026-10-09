@@ -106,3 +106,9 @@ Les historiques DM (`GET /api/messages/history/:otherUserId`) et salons (`GET /a
 `around` et `cursor` sont exclusifs. `direction=after` exige `cursor` et exclut `around`. Le message de départ est recherché dans la conversation autorisée : une cible absente ou étrangère répond 400; l’accès aux salons reste validé par Room-Service. Le Gateway transmet les paramètres sans changer le contrat.
 
 Les clients affichent un indicateur de chargement puis positionnent le message instantanément. Une nouvelle recherche ou une navigation invalide les réponses précédentes. L’historique repart de cette page; les messages plus anciens et plus récents sont chargés à la demande.
+
+## Renforcement sécurité — 9 octobre 2026
+
+Une vérification Auth explicitement fraîche invalide aussi la requête en cours. Une réponse antérieure ne peut ni remplir à nouveau le cache ni effacer la nouvelle requête. Cette logique et ses tests sont identiques à Room-Service.
+
+Les dépendances compatibles sont mises à jour; l'override YAML concerne seulement `@istanbuljs/load-nyc-config`. npm/npx sont retirés de l'image finale : la migration utilise le CLI Prisma déjà installé (`node node_modules/prisma/build/index.js migrate deploy`). Voir le rapport global dans `../A26_5A6_01-Infra/docs/audit-securite-2026-10-09.md`.
