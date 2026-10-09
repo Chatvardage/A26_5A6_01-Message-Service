@@ -25,4 +25,9 @@ export class JwtAuthService {
   verifyToken(token: string): Promise<AuthenticatedUser> {
     return this.client.verifierJeton(token);
   }
+
+  /** Revérifie auprès d'Authentification, sans le cache (sessions révoquées). */
+  verifyTokenFresh(token: string): Promise<AuthenticatedUser> {
+    return this.client.verifierJetonSansCache(token);
+  }
 }

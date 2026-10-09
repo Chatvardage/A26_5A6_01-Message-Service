@@ -172,6 +172,16 @@ describe('ClientAuth', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('revérifie sans le cache quand des sessions viennent d’être révoquées', async () => {
+    const auth = client();
+    await auth.verifierJeton('jwt');
+    fetchMock.mockResolvedValueOnce(reponse(401, { erreur: 'révoqué' }));
+    await expect(auth.verifierJetonSansCache('jwt')).rejects.toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Refus jamais mémorisé : l'entrée en cache a disparu.
+    expect(auth.tailleCache).toBe(0);
+  });
+
   it('ne mémorise rien avec une durée de cache nulle', async () => {
     const auth = client({ dureeCacheMs: 0 });
     await auth.verifierJeton('jwt');

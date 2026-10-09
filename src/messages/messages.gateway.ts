@@ -26,7 +26,10 @@ import {
   RAISONS_SERVEUR,
   RaisonServeur,
 } from '../internal/evenement-serveur.dto';
-import { SERVEUR_CHANNEL } from '../internal/internal-events.controller';
+import {
+  SERVEUR_CHANNEL,
+  SESSIONS_CHANNEL,
+} from '../internal/internal-events.controller';
 import { RedisService } from '../redis.service';
 import { RoomMessagesService } from '../room-messages/room-messages.service';
 import { RoomIdDto } from '../room-messages/dto/room-id.dto';
@@ -277,6 +280,7 @@ export class MessagesGateway
         PROFIL_CHANNEL,
         SERVEUR_CHANNEL,
         LECTURE_CHANNEL,
+        SESSIONS_CHANNEL,
       ],
       (channel, payload) => this.broadcastRedisEvent(channel, payload),
     );
@@ -318,25 +322,61 @@ export class MessagesGateway
     // avertissement par passe, pour qu'une panne ne passe pas inaperçue.
     let gardesSansVerification = 0;
     for (const socket of sockets) {
-      // Encore en cours d'authentification (voir handleConnection).
-      if (!socket.data.userId) continue;
-      try {
-        const user = await this.jwt.verifyToken(this.readSocketToken(socket));
-        socket.data.role = user.role;
-      } catch (erreur) {
-        if (!estJetonRefuse(erreur)) {
-          gardesSansVerification += 1;
-          continue;
-        }
-        this.logger.warn(`Jeton refusé, socket déconnecté [${socket.id}]`);
-        socket.emit('session.revoquee');
-        socket.disconnect(true);
+      if (!(await this.revaliderSocket(socket, false))) {
+        gardesSansVerification += 1;
       }
     }
     if (gardesSansVerification > 0) {
       this.logger.warn(
         `Authentification indisponible : ${gardesSansVerification} socket(s) gardé(s) sans revérification`,
       );
+    }
+  }
+
+  /**
+   * Toutes les sessions de `userId` viennent d'être invalidées (mot de passe
+   * changé, déconnexion de tous ou des autres appareils, compte supprimé) :
+   * ses sockets sont revérifiés tout de suite, sans le cache. Ceux dont le
+   * jeton est révoqué reçoivent `session.revoquee` et sont fermés ; celui de
+   * l'appareil qui vient d'obtenir un nouveau jeton reste ouvert.
+   */
+  async revaliderSocketsUtilisateur(userId: string): Promise<void> {
+    const sockets = (await this.server
+      .in(`user:${userId}`)
+      .fetchSockets()) as unknown as RemoteSocket<
+      EvenementsVersClient,
+      SocketData
+    >[];
+    for (const socket of sockets) {
+      await this.revaliderSocket(socket, true);
+    }
+  }
+
+  /**
+   * Revérifie le jeton d'un socket ; un jeton refusé ferme le socket (après
+   * `session.revoquee`). Renvoie faux si Authentification n'a pas répondu
+   * (socket gardé sans vérification).
+   */
+  private async revaliderSocket(
+    socket: RemoteSocket<EvenementsVersClient, SocketData>,
+    sansCache: boolean,
+  ): Promise<boolean> {
+    // Encore en cours d'authentification (voir handleConnection).
+    if (!socket.data.userId) return true;
+    try {
+      // Un jeton absent est refusé comme un jeton révoqué.
+      const jeton = this.readSocketToken(socket);
+      const user = sansCache
+        ? await this.jwt.verifyTokenFresh(jeton)
+        : await this.jwt.verifyToken(jeton);
+      socket.data.role = user.role;
+      return true;
+    } catch (erreur) {
+      if (!estJetonRefuse(erreur)) return false;
+      this.logger.warn(`Jeton refusé, socket déconnecté [${socket.id}]`);
+      socket.emit('session.revoquee');
+      socket.disconnect(true);
+      return true;
     }
   }
 
@@ -669,6 +709,22 @@ export class MessagesGateway
 
     if (channel === PROFIL_CHANNEL) {
       this.broadcastProfilEvent(payload);
+      return;
+    }
+
+    if (channel === SESSIONS_CHANNEL) {
+      const event = this.lireJson(payload) as { userId?: unknown } | null;
+      if (typeof event?.userId !== 'string') {
+        this.logger.warn(`Payload Redis invalide ignoré: ${payload}`);
+        return;
+      }
+      this.revaliderSocketsUtilisateur(event.userId).catch(
+        (erreur: unknown) => {
+          this.logger.error(
+            `Revalidation des sockets de ${event.userId as string}: ${String(erreur)}`,
+          );
+        },
+      );
       return;
     }
 

@@ -164,6 +164,15 @@ export class ClientAuth {
     return promesse;
   }
 
+  /**
+   * Comme `verifierJeton`, sans réutiliser le cache : sert quand on sait que
+   * des jetons viennent d'être révoqués (sessions d'un compte invalidées).
+   */
+  async verifierJetonSansCache(jeton: string): Promise<UtilisateurAuthentifie> {
+    this.cache.delete(createHash('sha256').update(jeton).digest('hex'));
+    return this.verifierJeton(jeton);
+  }
+
   /** Nombre d'entrées en cache (diagnostic et tests). */
   get tailleCache(): number {
     return this.cache.size;
