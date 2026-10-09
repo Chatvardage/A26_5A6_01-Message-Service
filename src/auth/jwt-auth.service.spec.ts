@@ -24,11 +24,15 @@ describe('JwtAuthService', () => {
       courriel: 'alice@example.com',
       role: 'utilisateur',
     };
-    global.fetch = jest
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify(user), { status: 200 }));
+    // Une réponse neuve par appel (son corps ne se lit qu'une fois).
+    global.fetch = jest.fn(() =>
+      Promise.resolve(new Response(JSON.stringify(user), { status: 200 })),
+    );
 
     await expect(new JwtAuthService().verifyToken('jwt')).resolves.toEqual(
+      user,
+    );
+    await expect(new JwtAuthService().verifyTokenFresh('jwt')).resolves.toEqual(
       user,
     );
   });

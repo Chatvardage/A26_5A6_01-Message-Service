@@ -28,8 +28,10 @@ import {
 } from '../lecture/etat-lecture.service';
 import { extraireJetonBearer } from '../partage/client-auth';
 import { RechercheQueryDto } from '../recherche/dto/recherche-query.dto';
+import { ResumeRechercheQueryDto } from '../recherche/dto/resume-recherche-query.dto';
 import {
   PageRecherche,
+  ResumeRecherche,
   RechercheService,
 } from '../recherche/recherche.service';
 import { ConversationSummary } from './dto/conversation-summary.dto';
@@ -49,6 +51,17 @@ export class MessagesController {
     private readonly lecture: EtatLectureService,
     private readonly recherche: RechercheService,
   ) {}
+
+  @Put(':id/delivered')
+  @ApiOperation({
+    summary: 'Confirme la reception du DM dans une application du destinataire',
+  })
+  markDelivered(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<PrivateMessage> {
+    return this.messages.markDelivered(req.auth.id, id);
+  }
 
   @Post()
   @ApiOperation({
@@ -172,6 +185,31 @@ export class MessagesController {
     @Req() req: AuthenticatedRequest,
   ): Promise<{ counts: Record<string, number> }> {
     return { counts: await this.lecture.compteurs(req.auth) };
+  }
+
+  @Get('activity')
+  @ApiOperation({
+    summary: 'Dernière activité de mes salons',
+    description:
+      '`{ rooms: { "room:<id>": "<date du dernier message>" } }`, salons lisibles seulement ; les salons sans message sont absents. Sert à trier les serveurs par activité.',
+  })
+  async activity(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ rooms: Record<string, string> }> {
+    return { rooms: await this.lecture.activiteSalons(req.auth) };
+  }
+
+  @Get('search/summary')
+  @ApiOperation({
+    summary: 'Compter les correspondances par interlocuteur, serveur et salon',
+    description:
+      'Totaux complets des DM et salons lisibles, sans contenu de message. Les groupes sans correspondance sont absents.',
+  })
+  searchSummary(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: ResumeRechercheQueryDto,
+  ): Promise<ResumeRecherche> {
+    return this.recherche.resumer(req.auth, query.q);
   }
 
   @Get('search')

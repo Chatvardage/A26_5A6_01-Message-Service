@@ -156,12 +156,30 @@ export class ClientAuth {
 
     const promesse = this.demanderAuService(jeton)
       .then((utilisateur) => {
-        this.memoriser(clef, utilisateur);
+        // Une révocation peut avoir remplacé cet appel pendant la réponse.
+        // L'ancienne réponse ne doit alors ni restaurer le cache ni effacer
+        // la nouvelle validation en cours.
+        if (this.enCours.get(clef) === promesse) {
+          this.memoriser(clef, utilisateur);
+        }
         return utilisateur;
       })
-      .finally(() => this.enCours.delete(clef));
+      .finally(() => {
+        if (this.enCours.get(clef) === promesse) this.enCours.delete(clef);
+      });
     this.enCours.set(clef, promesse);
     return promesse;
+  }
+
+  /**
+   * Comme `verifierJeton`, sans réutiliser le cache : sert quand on sait que
+   * des jetons viennent d'être révoqués (sessions d'un compte invalidées).
+   */
+  async verifierJetonSansCache(jeton: string): Promise<UtilisateurAuthentifie> {
+    const clef = createHash('sha256').update(jeton).digest('hex');
+    this.cache.delete(clef);
+    this.enCours.delete(clef);
+    return this.verifierJeton(jeton);
   }
 
   /** Nombre d'entrées en cache (diagnostic et tests). */

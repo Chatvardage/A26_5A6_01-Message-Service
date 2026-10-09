@@ -2,6 +2,10 @@
 
 Microservice NestJS/Prisma : messages privés et de salon, historique, messages non lus, recherche, Redis Pub/Sub et Socket.IO. Il écrit dans PostgreSQL avant de publier chaque création, modification ou suppression individuelle.
 
+### Résumé de recherche
+
+`GET /api/messages/search/summary?q=<texte>` renvoie les comptes complets par interlocuteur et par serveur, avec les comptes de ses salons lisibles. Le texte a les mêmes contraintes que la recherche paginée (2–100 caractères, casse ignorée, jokers littéraux). Les groupes sans résultat sont absents; les DM entrants et sortants sont additionnés par interlocuteur. Les agrégations ne chargent aucun contenu de message et utilisent uniquement les droits Room-Service de l'acteur authentifié. La réponse contient `directMessages: [{ conversationId, count }]` et `servers: [{ serverId, count, channels: [{ conversationId, count }] }]`, triés par compte décroissant puis identifiant. La route est additive; reconstruire le service avant d'utiliser la nouvelle recherche mobile. Référence : [résumé de recherche dans Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/docs/api/recherche-resume.md).
+
 ## Lancer le service complet
 
 Le [README Infra](https://github.com/Chatvardage/A26_5A6_01-Infra/blob/main/README.md) est le point de départ : clonage des huit dépôts, secrets, Docker Compose, administration et client desktop.
@@ -94,3 +98,19 @@ Les deux PUT de lecture renvoient maintenant la position persistée complète `{
 
 L’observation signalant l’absence des tables de messages est infirmée par la chaîne complète : `20260916163000_init` crée `PrivateMessage` avec ses deux index, puis `20260923130000_add_room_message` crée `RoomMessage` et son index. `20261006175849_etat_lecture` et `20261006194000_position_lecture` ajoutent ensuite l’état de lecture. Une base neuve exécutant `prisma migrate deploy` parcourt ces migrations dans cet ordre; aucune migration corrective ni inscription manuelle sur les bases existantes n’est requise.
 \n\n
+
+### Recherche : pagination directe depuis un message
+
+Les historiques DM (`GET /api/messages/history/:otherUserId`) et salons (`GET /api/messages/rooms/:roomId/history`) acceptent `around=<messageId>` : une page de 50 messages par défaut commence au message inclus, vers les messages plus anciens. Les pages intermédiaires ne sont pas chargées. `cursor=<messageId>&direction=after` charge ensuite les messages plus récents; `cursor` seul garde la pagination ancienne. Les réponses restent des tableaux chronologiques, avec un ordre stable `(createdAt, id)`. La limite reste bornée de 1 à 100.
+
+`around` et `cursor` sont exclusifs. `direction=after` exige `cursor` et exclut `around`. Le message de départ est recherché dans la conversation autorisée : une cible absente ou étrangère répond 400; l’accès aux salons reste validé par Room-Service. Le Gateway transmet les paramètres sans changer le contrat.
+
+Les clients affichent un indicateur de chargement puis positionnent le message instantanément. Une nouvelle recherche ou une navigation invalide les réponses précédentes. L’historique repart de cette page; les messages plus anciens et plus récents sont chargés à la demande.
+
+## Renforcement sécurité — 9 octobre 2026
+
+Une vérification Auth explicitement fraîche invalide aussi la requête en cours. Une réponse antérieure ne peut ni remplir à nouveau le cache ni effacer la nouvelle requête. Cette logique et ses tests sont identiques à Room-Service.
+
+La confirmation de livraison est atomique entre appareils : un seul appel publie `private-message.delivered`, les autres relisent la confirmation existante. Elle préserve la date de modification du texte, y compris lors d'une édition concurrente. Si Auth est indisponible lors d'une invalidation ciblée, les sockets conservés sans vérification sont signalés par un avertissement agrégé.
+
+Les dépendances compatibles sont mises à jour; l'override YAML concerne seulement `@istanbuljs/load-nyc-config`. npm/npx sont retirés de l'image finale : la migration utilise le CLI Prisma déjà installé (`node node_modules/prisma/build/index.js migrate deploy`). Voir le rapport global dans `../A26_5A6_01-Infra/docs/audit-securite-2026-10-09.md`.

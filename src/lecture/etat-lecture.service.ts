@@ -163,6 +163,29 @@ export class EtatLectureService {
     return resultat;
   }
 
+  /**
+   * Dernière activité (date du dernier message) de chaque salon lisible,
+   * clés `room:<id>` ; les salons sans message sont absents. Une seule
+   * requête groupée : sert à trier les serveurs du plus actif au moins actif.
+   */
+  async activiteSalons(acteur: Acteur): Promise<Record<string, string>> {
+    const lisibles = await this.rooms.salonsLisibles(acteur);
+    if (lisibles.length === 0) return {};
+    const lignes = await this.prisma.roomMessage.groupBy({
+      by: ['roomId'],
+      where: { roomId: { in: lisibles.map((s) => s.salonId) } },
+      _max: { createdAt: true },
+    });
+    const resultat: Record<string, string> = {};
+    for (const ligne of lignes) {
+      if (ligne._max.createdAt) {
+        resultat[idConversation('room', ligne.roomId)] =
+          ligne._max.createdAt.toISOString();
+      }
+    }
+    return resultat;
+  }
+
   /** Non-lus par interlocuteur (tous, ou seulement `seulement`). Une seule
    * requête groupée, quel que soit le nombre de conversations. */
   async compteursDm(

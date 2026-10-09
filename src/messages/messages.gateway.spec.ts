@@ -67,7 +67,7 @@ describe('MessagesGateway', () => {
   beforeEach(() => {
     messages = { create: jest.fn() };
     redis = { subscribe: jest.fn() };
-    jwt = { verifyToken: jest.fn() };
+    jwt = { verifyToken: jest.fn(), verifyTokenFresh: jest.fn() };
     roomMessages = { create: jest.fn() };
     rooms = { verifierAcces: jest.fn(), oublierServeur: jest.fn() };
     gateway = new MessagesGateway(messages, redis, jwt, roomMessages, rooms);
@@ -110,6 +110,7 @@ describe('MessagesGateway', () => {
         'private-message.created',
         'private-message.updated',
         'private-message.deleted',
+        'private-message.delivered',
         'room-message.created',
         'room-message.updated',
         'room-message.deleted',
@@ -117,6 +118,7 @@ describe('MessagesGateway', () => {
         'profil.changed',
         'serveur.change',
         'read-state.updated',
+        'sessions.revoquees',
       ],
       expect.any(Function),
     );
@@ -749,6 +751,83 @@ describe('MessagesGateway', () => {
         typeof payload === 'string' ? payload : JSON.stringify(payload),
       );
   }
+
+  it('sessions révoquées : revérifie sans cache les seuls sockets de ce compte', async () => {
+    const socket = (id: string, token: string) => ({
+      id,
+      handshake: { auth: { token } },
+      data: { userId: 'u1', role: 'utilisateur' },
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+    });
+    const ancien = socket('ancien', 'jeton-revoque');
+    const courant = socket('courant', 'nouveau-jeton');
+    const fetchSockets = jest.fn().mockResolvedValue([ancien, courant]);
+    const versUtilisateur = jest.fn().mockReturnValue({ fetchSockets });
+    (gateway as any).server = { in: versUtilisateur };
+    jwt.verifyTokenFresh.mockImplementation(async (token: string) => {
+      if (token === 'jeton-revoque') throw new UnauthorizedException();
+      return { id: 'u1', role: 'utilisateur' };
+    });
+    const publier = await brancherRedis();
+
+    publier('sessions.revoquees', { userId: 'u1' });
+    await new Promise((fin) => setImmediate(fin));
+
+    expect(versUtilisateur).toHaveBeenCalledWith('user:u1');
+    expect(jwt.verifyToken).not.toHaveBeenCalled();
+    expect(ancien.emit).toHaveBeenCalledWith('session.revoquee');
+    expect(ancien.disconnect).toHaveBeenCalledWith(true);
+    // L'appareil qui vient d'obtenir un nouveau jeton reste connecté.
+    expect(courant.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('sessions révoquées : signale une panne Auth sans fermer les sockets', async () => {
+    const avertir = jest
+      .spyOn((gateway as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+    const socket = {
+      id: 'courant',
+      handshake: { auth: { token: 'jeton' } },
+      data: { userId: 'u1', role: 'utilisateur' },
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+    };
+    (gateway as any).server = {
+      in: jest.fn().mockReturnValue({
+        fetchSockets: jest.fn().mockResolvedValue([socket]),
+      }),
+    };
+    jwt.verifyTokenFresh.mockRejectedValue(new Error('Auth indisponible'));
+    await gateway.revaliderSocketsUtilisateur('u1');
+    expect(socket.disconnect).not.toHaveBeenCalled();
+    expect(avertir).toHaveBeenCalledWith(
+      'Authentification indisponible après invalidation : 1 socket(s) gardé(s) sans revérification',
+    );
+  });
+  it('sessions révoquées : ignore un message invalide et journalise un échec', async () => {
+    const erreur = jest
+      .spyOn((gateway as any).logger, 'error')
+      .mockImplementation(() => undefined);
+    const avertir = jest
+      .spyOn((gateway as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+    const fetchSockets = jest.fn().mockRejectedValue(new Error('redis'));
+    (gateway as any).server = {
+      in: jest.fn().mockReturnValue({ fetchSockets }),
+    };
+    const publier = await brancherRedis();
+
+    publier('sessions.revoquees', { userId: 3 });
+    expect(avertir).toHaveBeenCalled();
+    expect(fetchSockets).not.toHaveBeenCalled();
+
+    publier('sessions.revoquees', { userId: 'u1' });
+    await new Promise((fin) => setImmediate(fin));
+    expect(erreur).toHaveBeenCalledWith(
+      expect.stringContaining('Revalidation des sockets de u1'),
+    );
+  });
 
   it('broadcasts profile changes to every client, ignoring invalid ones', async () => {
     const serverEmit = jest.fn();

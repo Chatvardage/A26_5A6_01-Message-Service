@@ -25,6 +25,7 @@ describe('MessagesService', () => {
   let service: MessagesService;
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn(),
       privateMessage: {
         create: jest.fn(),
         findMany: jest.fn(),
@@ -47,6 +48,82 @@ describe('MessagesService', () => {
       destinataires,
       lecture,
     );
+  });
+  it('seul le destinataire confirme la livraison sans modifier le texte', async () => {
+    prisma.privateMessage.findUnique.mockResolvedValue({
+      ...msg,
+      deliveredAt: null,
+    });
+    const delivered = { ...msg, deliveredAt: new Date() };
+    prisma.$queryRaw.mockResolvedValue([delivered]);
+    await expect(service.markDelivered('u2', 'm1')).resolves.toEqual(delivered);
+    expect(prisma.privateMessage.update).not.toHaveBeenCalled();
+    expect(redis.publish).toHaveBeenCalledWith(
+      'private-message.delivered',
+      delivered,
+    );
+  });
+  it('refuse une confirmation par lexpediteur ou un tiers', async () => {
+    prisma.privateMessage.findUnique.mockResolvedValue({
+      ...msg,
+      deliveredAt: null,
+    });
+    await expect(service.markDelivered('u1', 'm1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.privateMessage.update).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+  it('une confirmation repetee reste idempotente', async () => {
+    const delivered = { ...msg, deliveredAt: new Date() };
+    prisma.privateMessage.findUnique.mockResolvedValue(delivered);
+    await expect(service.markDelivered('u2', 'm1')).resolves.toBe(delivered);
+    expect(prisma.privateMessage.update).not.toHaveBeenCalled();
+    expect(redis.publish).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+  it('refuse un message inconnu', async () => {
+    prisma.privateMessage.findUnique.mockResolvedValue(null);
+    await expect(service.markDelivered('u2', 'missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+  it('propage une panne de stockage ou de diffusion', async () => {
+    prisma.privateMessage.findUnique.mockResolvedValue({
+      ...msg,
+      deliveredAt: null,
+    });
+    prisma.$queryRaw.mockRejectedValueOnce(new Error('database'));
+    await expect(service.markDelivered('u2', 'm1')).rejects.toThrow('database');
+    prisma.$queryRaw.mockResolvedValue([msg]);
+    redis.publish.mockRejectedValueOnce(new Error('redis'));
+    await expect(service.markDelivered('u2', 'm1')).rejects.toThrow('redis');
+  });
+  it('deux confirmations concurrentes ne publient qu une livraison', async () => {
+    const delivered = { ...msg, deliveredAt: new Date() };
+    prisma.privateMessage.findUnique
+      .mockResolvedValueOnce({ ...msg, deliveredAt: null })
+      .mockResolvedValueOnce({ ...msg, deliveredAt: null })
+      .mockResolvedValue(delivered);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([delivered])
+      .mockResolvedValueOnce([]);
+    const resultats = await Promise.all([
+      service.markDelivered('u2', 'm1'),
+      service.markDelivered('u2', 'm1'),
+    ]);
+    expect(resultats).toEqual([delivered, delivered]);
+    expect(redis.publish).toHaveBeenCalledTimes(1);
+  });
+  it('refuse un message supprimé pendant la confirmation', async () => {
+    prisma.privateMessage.findUnique
+      .mockResolvedValueOnce({ ...msg, deliveredAt: null })
+      .mockResolvedValueOnce(null);
+    prisma.$queryRaw.mockResolvedValue([]);
+    await expect(service.markDelivered('u2', 'm1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(redis.publish).not.toHaveBeenCalled();
   });
   it('creates then publishes', async () => {
     prisma.privateMessage.create.mockResolvedValue(msg);
@@ -391,5 +468,54 @@ describe('MessagesService', () => {
     expect(prisma.privateMessage.deleteMany).toHaveBeenCalledWith({
       where: { OR: [{ senderId: 'u1' }, { recipientId: 'u1' }] },
     });
+  });
+
+  it('ouvre une page au message cible inclus avec un seul acces pagine', async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue({ id: 'm1' });
+    prisma.privateMessage.findMany.mockResolvedValue([msg]);
+    const query = { around: 'm1', limit: 50 };
+    expect(await service.history('u1', 'u2', query)).toEqual([msg]);
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: { id: 'm1' }, skip: 0, take: 50 }),
+    );
+  });
+  it('pagine vers les messages plus recents dans un ordre stable', async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue({ id: 'm1' });
+    prisma.privateMessage.findMany.mockResolvedValue([
+      msg,
+      { ...msg, id: 'm2' },
+    ]);
+    const query = { cursor: 'm1', direction: 'after' as const, limit: 50 };
+    expect((await service.history('u1', 'u2', query)).map((m) => m.id)).toEqual(
+      ['m1', 'm2'],
+    );
+    expect(prisma.privateMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 1,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+  });
+  it.each([
+    { around: 'm1', cursor: 'm2', limit: 50 },
+    { direction: 'after' as const, limit: 50 },
+    { around: 'm1', direction: 'after' as const, limit: 50 },
+    { around: 'm1', cursor: 'm2', direction: 'after' as const, limit: 50 },
+  ])(
+    'refuse une pagination incompatible sans lire les messages',
+    async (query) => {
+      await expect(service.history('u1', 'u2', query)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
+    },
+  );
+  it('refuse une cible absente ou appartenant a une autre conversation', async () => {
+    prisma.privateMessage.findFirst.mockResolvedValue(null);
+    const query = { around: 'foreign', limit: 50 };
+    await expect(service.history('u1', 'u2', query)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.privateMessage.findMany).not.toHaveBeenCalled();
   });
 });

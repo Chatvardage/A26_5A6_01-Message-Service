@@ -16,8 +16,14 @@ describe('MessagesController', () => {
     headers: { authorization: 'Bearer jwt-admin' },
   };
 
+  it('la confirmation utilise lidentite authentifiee', async () => {
+    service.markDelivered.mockResolvedValue('receipt');
+    await expect(controller.markDelivered(req, 'm1')).resolves.toBe('receipt');
+    expect(service.markDelivered).toHaveBeenCalledWith('u1', 'm1');
+  });
   beforeEach(() => {
     service = {
+      markDelivered: jest.fn(),
       create: jest.fn(),
       createForAdmin: jest.fn(),
       history: jest.fn(),
@@ -32,9 +38,22 @@ describe('MessagesController', () => {
       lecteurDm: jest.fn().mockResolvedValue('lecteur'),
       marquerDmLu: jest.fn().mockResolvedValue('etat'),
       compteurs: jest.fn().mockResolvedValue({ 'dm:u2': 1 }),
+      activiteSalons: jest
+        .fn()
+        .mockResolvedValue({ 'room:r1': '2026-10-08T10:00:00.000Z' }),
     };
-    recherche = { rechercher: jest.fn().mockResolvedValue('page') };
+    recherche = {
+      rechercher: jest.fn().mockResolvedValue('page'),
+      resumer: jest.fn().mockResolvedValue('résumé'),
+    };
     controller = new MessagesController(service, lecture, recherche);
+  });
+
+  it('le résumé utilise uniquement l’identité authentifiée et le texte validé', async () => {
+    await expect(controller.searchSummary(req, { q: 'bonjour' })).resolves.toBe(
+      'résumé',
+    );
+    expect(recherche.resumer).toHaveBeenCalledWith(req.auth, 'bonjour');
   });
 
   it('delegates authenticated CRUD operations', async () => {
@@ -119,6 +138,11 @@ describe('MessagesController', () => {
       counts: { 'dm:u2': 1 },
     });
     expect(lecture.compteurs).toHaveBeenCalledWith(req.auth);
+
+    await expect(controller.activity(req)).resolves.toEqual({
+      rooms: { 'room:r1': '2026-10-08T10:00:00.000Z' },
+    });
+    expect(lecture.activiteSalons).toHaveBeenCalledWith(req.auth);
 
     const query = { q: 'salut', limit: 20 };
     await expect(controller.search(req, query)).resolves.toBe('page');

@@ -114,9 +114,16 @@ export class RoomMessagesService {
   ): Promise<RoomMessage[]> {
     await this.verifierLecture(acteur, roomId);
 
-    if (query.cursor) {
+    if (
+      (query.around && query.cursor) ||
+      (query.direction === 'after' && (!query.cursor || query.around))
+    ) {
+      throw new BadRequestException('Pagination incompatible');
+    }
+    const anchor = query.around ?? query.cursor;
+    if (anchor) {
       const cursorMessage = await this.prisma.roomMessage.findFirst({
-        where: { id: query.cursor, roomId },
+        where: { id: anchor, roomId },
         select: { id: true },
       });
 
@@ -127,15 +134,18 @@ export class RoomMessagesService {
 
     const messages = await this.prisma.roomMessage.findMany({
       where: { roomId },
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      ...(anchor ? { cursor: { id: anchor }, skip: query.around ? 0 : 1 } : {}),
       take: query.limit,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [
+        { createdAt: query.direction === 'after' ? 'asc' : 'desc' },
+        { id: query.direction === 'after' ? 'asc' : 'desc' },
+      ],
     });
 
     // Même convention que MessagesService.history() : on récupère d'abord les
     // messages les plus récents pour que `take` sélectionne la bonne page,
     // puis on renvoie l'ordre chronologique attendu par l'interface.
-    return messages.reverse();
+    return query.direction === 'after' ? messages : messages.reverse();
   }
 
   async findOne(
