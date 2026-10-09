@@ -84,6 +84,18 @@ Mettre à jour le `README.md` et `docs/TEMPS_REEL_*.md` à chaque changement de 
 
 Infra est la référence du démarrage complet, des architectures, contrats et scénarios de validation. Le README local décrit le dépôt et ses commandes; les guides détaillés sont dans `A26_5A6_01-Infra/docs/`. Toute modification de contrat doit mettre à jour la référence centrale et ses liens.
 
+## Revue PR #10 — 9 octobre 2026
+
+- Livraison atomique : une seule requête confirme la livraison et publie l'événement Redis. L'UPDATE conditionnel ne change pas `updatedAt`, même si le texte est édité entre la lecture d'autorisation et la confirmation. Concurrence vérifiée aussi sur PostgreSQL réel.
+- Revalidation ciblée pendant une panne Auth : un avertissement agrégé signale désormais les sockets gardés sans vérification; la politique de conservation pendant une panne reste celle de la revalidation périodique.
+- Validation UUID non ajoutée : les colonnes Prisma `String` n'ont pas `@db.Uuid` et les migrations créent du TEXT. Un identifiant malformé ne déclenche pas l'erreur UUID PostgreSQL annoncée; une cible absente est déjà refusée selon le contrat. Les identifiants système ne doivent pas être restreints arbitrairement.
+- Invocation Prisma directe conservée : `build/index.js` est le `bin` déclaré de la version figée réellement installée, et les migrations de l'image ont été validées. Un lien `.bin` ne corrige aucun défaut actuel.
+- Override Swagger conservé : `js-yaml` 5.4.2 est présent dans le lockfile installé et l'audit passe; l'affirmation d'inexistence de cette version ne correspond pas au registre utilisé par le projet.
+- Suppression de la promesse en cours conservée : son invalidation est intentionnelle pour ne pas reprendre une validation antérieure à la révocation. Les tests partagés avec Room-Service le prouvent; aucun changement de fichier partagé nécessaire.
+- Position du `beforeEach` conservée : Jest initialise tous les tests correctement. La recherche tout-ou-rien reste volontaire et testée.
+
+Validation de cette review sous Node 22.23.2 : audit high, lint, build et 394 tests unitaires à couverture 100 % passent. Les 14 tests d'intégration passent sur une nouvelle base PostgreSQL jetable migrée, y compris la confirmation concurrente et l'édition entre lecture et livraison.
+
 ## Revue PR #9 — décisions du 6 octobre 2026
 
 - Publication concurrente : correction retenue; publier seulement si la lecture relue correspond encore à la date avancée par cet appel. L'état en base reste monotone et la réponse renvoie l'état courant. Une transaction supplémentaire n'est pas nécessaire pour ce correctif.

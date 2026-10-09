@@ -347,8 +347,15 @@ export class MessagesGateway
       EvenementsVersClient,
       SocketData
     >[];
+    let gardesSansVerification = 0;
     for (const socket of sockets) {
-      await this.revaliderSocket(socket, true);
+      if (!(await this.revaliderSocket(socket, true)))
+        gardesSansVerification += 1;
+    }
+    if (gardesSansVerification > 0) {
+      this.logger.warn(
+        `Authentification indisponible après invalidation : ${gardesSansVerification} socket(s) gardé(s) sans revérification`,
+      );
     }
   }
 

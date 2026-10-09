@@ -782,6 +782,29 @@ describe('MessagesGateway', () => {
     expect(courant.disconnect).not.toHaveBeenCalled();
   });
 
+  it('sessions révoquées : signale une panne Auth sans fermer les sockets', async () => {
+    const avertir = jest
+      .spyOn((gateway as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+    const socket = {
+      id: 'courant',
+      handshake: { auth: { token: 'jeton' } },
+      data: { userId: 'u1', role: 'utilisateur' },
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+    };
+    (gateway as any).server = {
+      in: jest.fn().mockReturnValue({
+        fetchSockets: jest.fn().mockResolvedValue([socket]),
+      }),
+    };
+    jwt.verifyTokenFresh.mockRejectedValue(new Error('Auth indisponible'));
+    await gateway.revaliderSocketsUtilisateur('u1');
+    expect(socket.disconnect).not.toHaveBeenCalled();
+    expect(avertir).toHaveBeenCalledWith(
+      'Authentification indisponible après invalidation : 1 socket(s) gardé(s) sans revérification',
+    );
+  });
   it('sessions révoquées : ignore un message invalide et journalise un échec', async () => {
     const erreur = jest
       .spyOn((gateway as any).logger, 'error')

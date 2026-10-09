@@ -25,6 +25,7 @@ describe('MessagesService', () => {
   let service: MessagesService;
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn(),
       privateMessage: {
         create: jest.fn(),
         findMany: jest.fn(),
@@ -54,12 +55,9 @@ describe('MessagesService', () => {
       deliveredAt: null,
     });
     const delivered = { ...msg, deliveredAt: new Date() };
-    prisma.privateMessage.update.mockResolvedValue(delivered);
+    prisma.$queryRaw.mockResolvedValue([delivered]);
     await expect(service.markDelivered('u2', 'm1')).resolves.toEqual(delivered);
-    expect(prisma.privateMessage.update).toHaveBeenCalledWith({
-      where: { id: 'm1' },
-      data: { deliveredAt: expect.any(Date), updatedAt: msg.updatedAt },
-    });
+    expect(prisma.privateMessage.update).not.toHaveBeenCalled();
     expect(redis.publish).toHaveBeenCalledWith(
       'private-message.delivered',
       delivered,
@@ -74,6 +72,7 @@ describe('MessagesService', () => {
       ForbiddenException,
     );
     expect(prisma.privateMessage.update).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
   it('une confirmation repetee reste idempotente', async () => {
     const delivered = { ...msg, deliveredAt: new Date() };
@@ -81,6 +80,7 @@ describe('MessagesService', () => {
     await expect(service.markDelivered('u2', 'm1')).resolves.toBe(delivered);
     expect(prisma.privateMessage.update).not.toHaveBeenCalled();
     expect(redis.publish).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
   it('refuse un message inconnu', async () => {
     prisma.privateMessage.findUnique.mockResolvedValue(null);
@@ -93,11 +93,37 @@ describe('MessagesService', () => {
       ...msg,
       deliveredAt: null,
     });
-    prisma.privateMessage.update.mockRejectedValueOnce(new Error('database'));
+    prisma.$queryRaw.mockRejectedValueOnce(new Error('database'));
     await expect(service.markDelivered('u2', 'm1')).rejects.toThrow('database');
-    prisma.privateMessage.update.mockResolvedValue(msg);
+    prisma.$queryRaw.mockResolvedValue([msg]);
     redis.publish.mockRejectedValueOnce(new Error('redis'));
     await expect(service.markDelivered('u2', 'm1')).rejects.toThrow('redis');
+  });
+  it('deux confirmations concurrentes ne publient qu une livraison', async () => {
+    const delivered = { ...msg, deliveredAt: new Date() };
+    prisma.privateMessage.findUnique
+      .mockResolvedValueOnce({ ...msg, deliveredAt: null })
+      .mockResolvedValueOnce({ ...msg, deliveredAt: null })
+      .mockResolvedValue(delivered);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([delivered])
+      .mockResolvedValueOnce([]);
+    const resultats = await Promise.all([
+      service.markDelivered('u2', 'm1'),
+      service.markDelivered('u2', 'm1'),
+    ]);
+    expect(resultats).toEqual([delivered, delivered]);
+    expect(redis.publish).toHaveBeenCalledTimes(1);
+  });
+  it('refuse un message supprimé pendant la confirmation', async () => {
+    prisma.privateMessage.findUnique
+      .mockResolvedValueOnce({ ...msg, deliveredAt: null })
+      .mockResolvedValueOnce(null);
+    prisma.$queryRaw.mockResolvedValue([]);
+    await expect(service.markDelivered('u2', 'm1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(redis.publish).not.toHaveBeenCalled();
   });
   it('creates then publishes', async () => {
     prisma.privateMessage.create.mockResolvedValue(msg);

@@ -94,11 +94,21 @@ export class MessagesService {
     if (message.recipientId !== userId)
       throw new ForbiddenException('Destinataire requis');
     if (message.deliveredAt) return message;
-    // updatedAt decrit une modification du texte, pas une confirmation de livraison.
-    const delivered = await this.prisma.privateMessage.update({
-      where: { id },
-      data: { deliveredAt: new Date(), updatedAt: message.updatedAt },
-    });
+    // Une seule confirmation gagne, même avec deux appareils concurrents.
+    // SQL conserve updatedAt sans écraser une édition concurrente du texte;
+    // Prisma appliquerait sinon automatiquement @updatedAt à cette écriture.
+    const [delivered] = await this.prisma.$queryRaw<PrivateMessage[]>`
+      UPDATE "PrivateMessage" SET "deliveredAt" = ${new Date()}
+      WHERE "id" = ${id} AND "deliveredAt" IS NULL
+      RETURNING *
+    `;
+    if (!delivered) {
+      const actuel = await this.prisma.privateMessage.findUnique({
+        where: { id },
+      });
+      if (!actuel) throw new NotFoundException('Message introuvable');
+      return actuel;
+    }
     await this.redis.publish('private-message.delivered', delivered);
     return delivered;
   }

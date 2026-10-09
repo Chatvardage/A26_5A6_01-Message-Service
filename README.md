@@ -111,4 +111,6 @@ Les clients affichent un indicateur de chargement puis positionnent le message i
 
 Une vérification Auth explicitement fraîche invalide aussi la requête en cours. Une réponse antérieure ne peut ni remplir à nouveau le cache ni effacer la nouvelle requête. Cette logique et ses tests sont identiques à Room-Service.
 
+La confirmation de livraison est atomique entre appareils : un seul appel publie `private-message.delivered`, les autres relisent la confirmation existante. Elle préserve la date de modification du texte, y compris lors d'une édition concurrente. Si Auth est indisponible lors d'une invalidation ciblée, les sockets conservés sans vérification sont signalés par un avertissement agrégé.
+
 Les dépendances compatibles sont mises à jour; l'override YAML concerne seulement `@istanbuljs/load-nyc-config`. npm/npx sont retirés de l'image finale : la migration utilise le CLI Prisma déjà installé (`node node_modules/prisma/build/index.js migrate deploy`). Voir le rapport global dans `../A26_5A6_01-Infra/docs/audit-securite-2026-10-09.md`.
